@@ -183,8 +183,9 @@ def drawStatus (frame : Frame) (state : AppState) (area : Rect) : Frame :=
   let novel := state.project.novel
   let wordCount := state.project.totalWordCount
   let sceneInfo := state.getCurrentSceneTitle
+  let dirtyIndicator := if state.project.isDirty then " [*]" else ""
 
-  let leftInfo := s!" {novel.title} | {sceneInfo}"
+  let leftInfo := s!" {novel.title}{dirtyIndicator} | {sceneInfo}"
   let rightInfo := s!"Words: {wordCount} | {state.focus} "
 
   let bgStyle := Style.default.withBg Color.gray |>.withFg Color.white

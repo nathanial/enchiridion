@@ -5,6 +5,7 @@
 
 import Terminus
 import Enchiridion.Core.Types
+import Enchiridion.Model.Novel
 import Enchiridion.Model.Project
 import Enchiridion.State.Focus
 
@@ -69,6 +70,10 @@ structure AppState where
   -- Status
   statusMessage : Option String := none
   errorMessage : Option String := none
+
+  -- Pending actions (to be executed in IO context)
+  pendingNewChapter : Bool := false
+  pendingNewScene : Bool := false
 
   deriving Inhabited
 
@@ -142,10 +147,18 @@ def loadScene (state : AppState) (chapterId : EntityId) (sceneId : EntityId) : A
   match state.project.novel.getScene chapterId sceneId with
   | some scene =>
     let textArea := Terminus.TextArea.fromString scene.content
+    -- Find the chapter and scene indices for navigation sync
+    let novel := state.project.novel
+    let chapterIdx := novel.chapters.findIdx? (·.id == chapterId) |>.getD state.selectedChapterIdx
+    let sceneIdx := match novel.getChapter chapterId with
+      | some chapter => chapter.scenes.findIdx? (·.id == sceneId) |>.getD state.selectedSceneIdx
+      | none => state.selectedSceneIdx
     { state with
         currentChapterId := some chapterId
         currentSceneId := some sceneId
-        editorTextArea := textArea }
+        editorTextArea := textArea
+        selectedChapterIdx := chapterIdx
+        selectedSceneIdx := sceneIdx }
   | none => state
 
 /-- Save current editor content to scene -/
@@ -171,6 +184,87 @@ def updateLastChatMessage (state : AppState) (content : String) : AppState :=
     let msgs := state.chatMessages.modify lastIdx fun msg =>
       { msg with content := content }
     { state with chatMessages := msgs }
+
+/-- Add a new chapter to the novel -/
+def addNewChapter (state : AppState) (chapter : Chapter) : AppState :=
+  let project := state.project.updateNovel (·.addChapter chapter)
+  let chapterIdx := project.novel.chapters.size - 1
+  { state with
+      project := project
+      selectedChapterIdx := chapterIdx
+      selectedSceneIdx := 0
+      navCollapsed := state.navCollapsed.push false }
+
+/-- Add a new scene to the current chapter -/
+def addNewScene (state : AppState) (scene : Scene) : AppState :=
+  let novel := state.project.novel
+  if state.selectedChapterIdx < novel.chapters.size then
+    let chapter := novel.chapters[state.selectedChapterIdx]!
+    let project := state.project.updateNovel fun n =>
+      n.updateChapter chapter.id (·.addScene scene)
+    let sceneIdx := chapter.scenes.size  -- New scene will be at this index
+    { state with
+        project := project
+        selectedSceneIdx := sceneIdx }
+  else
+    state
+
+/-- Delete a chapter by index -/
+def deleteChapter (state : AppState) (chapterIdx : Nat) : AppState :=
+  let novel := state.project.novel
+  if h : chapterIdx < novel.chapters.size then
+    let chapters := novel.chapters.eraseIdx chapterIdx
+    let project := { state.project with novel := { novel with chapters := chapters }, isDirty := true }
+    let newSelectedIdx := if chapterIdx > 0 then chapterIdx - 1 else 0
+    let newNavCollapsed := if h2 : chapterIdx < state.navCollapsed.size then
+      state.navCollapsed.eraseIdx chapterIdx
+    else
+      state.navCollapsed
+    { state with
+        project := project
+        selectedChapterIdx := newSelectedIdx
+        selectedSceneIdx := 0
+        navCollapsed := newNavCollapsed
+        currentChapterId := none
+        currentSceneId := none }
+  else
+    state
+
+/-- Delete a scene from the current chapter -/
+def deleteScene (state : AppState) (sceneIdx : Nat) : AppState :=
+  let novel := state.project.novel
+  if state.selectedChapterIdx < novel.chapters.size then
+    let chapter := novel.chapters[state.selectedChapterIdx]!
+    if h : sceneIdx < chapter.scenes.size then
+      let scenes := chapter.scenes.eraseIdx sceneIdx
+      let project := state.project.updateNovel fun n =>
+        n.updateChapter chapter.id fun c => { c with scenes := scenes }
+      let newSelectedIdx := if sceneIdx > 0 then sceneIdx - 1 else 0
+      { state with
+          project := project
+          selectedSceneIdx := newSelectedIdx
+          currentChapterId := none
+          currentSceneId := none }
+    else
+      state
+  else
+    state
+
+/-- Request creation of a new chapter (will be executed in IO context) -/
+def requestNewChapter (state : AppState) : AppState :=
+  { state with pendingNewChapter := true }
+
+/-- Request creation of a new scene (will be executed in IO context) -/
+def requestNewScene (state : AppState) : AppState :=
+  { state with pendingNewScene := true }
+
+/-- Clear pending actions -/
+def clearPendingActions (state : AppState) : AppState :=
+  { state with pendingNewChapter := false, pendingNewScene := false }
+
+/-- Check if there are any pending actions -/
+def hasPendingActions (state : AppState) : Bool :=
+  state.pendingNewChapter || state.pendingNewScene
 
 end AppState
 

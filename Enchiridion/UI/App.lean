@@ -5,12 +5,14 @@
 
 import Terminus
 import Enchiridion.State.AppState
+import Enchiridion.Model.Novel
 import Enchiridion.UI.Draw
 import Enchiridion.UI.Update
 
 namespace Enchiridion.UI
 
 open Terminus
+open Enchiridion
 
 /-- Create initial app state with a sample project for testing -/
 def createSampleProject : IO AppState := do
@@ -62,6 +64,87 @@ def createSampleProject : IO AppState := do
 
   return state
 
+/-- Process pending actions that require IO -/
+def processPendingActions (state : AppState) : IO AppState := do
+  let mut state := state
+
+  -- Handle new chapter request
+  if state.pendingNewChapter then
+    let chapterNum := state.project.novel.chapters.size + 1
+    let chapter ← Chapter.create s!"Chapter {chapterNum}"
+    state := state.addNewChapter chapter
+    state := state.setStatus s!"Created new chapter: {chapter.title}"
+
+  -- Handle new scene request
+  if state.pendingNewScene then
+    let novel := state.project.novel
+    if state.selectedChapterIdx < novel.chapters.size then
+      let chapter := novel.chapters[state.selectedChapterIdx]!
+      let sceneNum := chapter.scenes.size + 1
+      let scene ← Scene.create s!"Scene {sceneNum}"
+      state := state.addNewScene scene
+      state := state.setStatus s!"Created new scene: {scene.title}"
+
+  -- Clear the pending flags
+  state := state.clearPendingActions
+  return state
+
+/-- Custom update wrapper that handles IO actions -/
+def updateWithIO (state : AppState) (keyEvent : Option KeyEvent) : IO (AppState × Bool) := do
+  -- First run the pure update
+  let (state, shouldQuit) := update state keyEvent
+
+  -- Then process any pending IO actions
+  let state ← processPendingActions state
+
+  return (state, shouldQuit)
+
+/-- Custom app loop with IO action support -/
+partial def runLoop (app : App AppState) (drawFn : Frame → AppState → Frame) : IO Unit := do
+  if app.shouldQuit then return
+
+  -- Poll for input
+  let event ← Events.poll
+
+  -- Extract key event if any
+  let keyEvent := match event with
+    | .key k => some k
+    | _ => none
+
+  -- Run update with IO support
+  let (newState, shouldQuit) ← updateWithIO app.state keyEvent
+
+  -- Update app state
+  let app := { app with state := newState, shouldQuit := app.shouldQuit || shouldQuit }
+
+  if app.shouldQuit then return
+
+  -- Create frame and render
+  let frame := Frame.new app.terminal.area
+  let frame := drawFn frame app.state
+
+  -- Update terminal buffer and flush
+  let term := app.terminal.setBuffer frame.buffer
+  let term ← term.flush frame.commands
+
+  let app := { app with terminal := term }
+
+  IO.sleep 16  -- ~60 FPS
+  runLoop app drawFn
+
+/-- Run the application with custom loop -/
+def runAppWithIO (initialState : AppState) (drawFn : Frame → AppState → Frame) : IO Unit := do
+  Terminal.setup
+  try
+    let app ← App.new initialState
+    -- Initial draw
+    let term ← app.terminal.draw
+    let app := { app with terminal := term }
+    -- Run main loop
+    runLoop app drawFn
+  finally
+    Terminal.teardown
+
 /-- Run the application -/
 def run : IO Unit := do
   IO.println "Starting Enchiridion..."
@@ -69,7 +152,7 @@ def run : IO Unit := do
   -- Create initial state
   let initialState ← createSampleProject
 
-  -- Run the app using Terminus App framework
-  App.runApp initialState draw update
+  -- Run the app with our custom IO-aware loop
+  runAppWithIO initialState draw
 
 end Enchiridion.UI

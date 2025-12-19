@@ -41,7 +41,8 @@ def updateNavigation (state : AppState) (key : KeyEvent) : AppState :=
       state
 
   | .enter =>
-    -- Load selected scene into editor
+    -- Auto-save current scene, then load selected scene
+    let state := state.saveCurrentScene
     let chapter := novel.chapters.getD state.selectedChapterIdx default
     let scene := chapter.scenes.getD state.selectedSceneIdx default
     state.loadScene chapter.id scene.id
@@ -57,6 +58,16 @@ def updateNavigation (state : AppState) (key : KeyEvent) : AppState :=
       let extended := state.navCollapsed ++ padding.toArray
       extended.set! state.selectedChapterIdx (!currentVal)
     { state with navCollapsed := collapsed }
+
+  | .delete =>
+    -- Delete selected scene (or chapter if no scenes)
+    let chapter := novel.chapters.getD state.selectedChapterIdx default
+    if chapter.scenes.isEmpty then
+      -- Delete the chapter
+      state.deleteChapter state.selectedChapterIdx
+    else
+      -- Delete the selected scene
+      state.deleteScene state.selectedSceneIdx
 
   | _ => state
 
@@ -153,6 +164,20 @@ def update (state : AppState) (keyEvent : Option KeyEvent) : AppState × Bool :=
     else if key.code == .char 's' && key.modifiers.ctrl then
       let state := state.setStatus "Saving... (not implemented)"
       (state, false)
+
+    -- Ctrl+N for new chapter (when in navigation panel)
+    else if key.code == .char 'n' && key.modifiers.ctrl && !key.modifiers.shift then
+      if state.focus == .navigation then
+        (state.requestNewChapter, false)
+      else
+        (state, false)
+
+    -- Ctrl+Shift+N for new scene (when in navigation panel)
+    else if key.code == .char 'n' && key.modifiers.ctrl && key.modifiers.shift then
+      if state.focus == .navigation then
+        (state.requestNewScene, false)
+      else
+        (state, false)
 
     -- Panel-specific handlers
     else
