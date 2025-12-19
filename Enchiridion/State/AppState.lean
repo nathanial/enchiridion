@@ -74,6 +74,11 @@ structure AppState where
   -- Pending actions (to be executed in IO context)
   pendingNewChapter : Bool := false
   pendingNewScene : Bool := false
+  pendingSave : Bool := false
+  pendingAIMessage : Option String := none  -- User message to send to AI
+
+  -- Quit confirmation (for unsaved changes warning)
+  quitConfirmPending : Bool := false
 
   deriving Inhabited
 
@@ -258,13 +263,21 @@ def requestNewChapter (state : AppState) : AppState :=
 def requestNewScene (state : AppState) : AppState :=
   { state with pendingNewScene := true }
 
+/-- Request save (will be executed in IO context) -/
+def requestSave (state : AppState) : AppState :=
+  { state with pendingSave := true }
+
+/-- Request AI message (will be executed in IO context) -/
+def requestAIMessage (state : AppState) (message : String) : AppState :=
+  { state with pendingAIMessage := some message }
+
 /-- Clear pending actions -/
 def clearPendingActions (state : AppState) : AppState :=
-  { state with pendingNewChapter := false, pendingNewScene := false }
+  { state with pendingNewChapter := false, pendingNewScene := false, pendingSave := false, pendingAIMessage := none }
 
 /-- Check if there are any pending actions -/
 def hasPendingActions (state : AppState) : Bool :=
-  state.pendingNewChapter || state.pendingNewScene
+  state.pendingNewChapter || state.pendingNewScene || state.pendingSave || state.pendingAIMessage.isSome
 
 end AppState
 

@@ -89,13 +89,13 @@ def updateChat (state : AppState) (key : KeyEvent) : AppState :=
   else
     match key.code with
     | .enter =>
-      -- Send message (would trigger AI request in real implementation)
+      -- Send message to AI
       let content := state.chatInput.value
       if content.trim.isEmpty then state
       else
-        let state := { state with chatInput := TextInput.new }
-        -- For now, just add user message (AI integration comes later)
-        state
+        -- Clear input and request AI response
+        let state := { state with chatInput := Terminus.TextInput.new }
+        state.requestAIMessage content
     | _ =>
       -- Let TextInput handle other keys
       let input := state.chatInput.handleKey key
@@ -147,10 +147,24 @@ def update (state : AppState) (keyEvent : Option KeyEvent) : AppState × Bool :=
   match keyEvent with
   | none => (state, false)  -- No input, no change
   | some key =>
+    -- Clear error message on any keypress
+    let state := if state.errorMessage.isSome then state.clearError else state
+
     -- Global key handlers first
-    -- Ctrl+Q to quit
+    -- Ctrl+Q to quit (with unsaved changes warning)
     if key.code == .char 'q' && key.modifiers.ctrl then
-      (state, true)
+      if state.project.isDirty && !state.quitConfirmPending then
+        -- First Ctrl+Q with unsaved changes: show warning
+        let state := state.setStatus "Unsaved changes! Press Ctrl+Q again to quit without saving, or Ctrl+S to save."
+        ({ state with quitConfirmPending := true }, false)
+      else
+        -- Either no unsaved changes, or confirmation already shown
+        (state, true)
+
+    -- Escape clears quit confirmation
+    else if key.code == .escape && state.quitConfirmPending then
+      let state := state.clearStatus
+      ({ state with quitConfirmPending := false }, false)
 
     -- Tab to cycle focus
     else if key.code == .tab && !key.modifiers.shift then
@@ -160,10 +174,11 @@ def update (state : AppState) (keyEvent : Option KeyEvent) : AppState × Bool :=
     else if key.code == .tab && key.modifiers.shift then
       (state.prevFocus, false)
 
-    -- Ctrl+S to save (placeholder)
+    -- Ctrl+S to save
     else if key.code == .char 's' && key.modifiers.ctrl then
-      let state := state.setStatus "Saving... (not implemented)"
-      (state, false)
+      -- Save current scene content first, then request save
+      let state := state.saveCurrentScene
+      (state.requestSave, false)
 
     -- Ctrl+N for new chapter (when in navigation panel)
     else if key.code == .char 'n' && key.modifiers.ctrl && !key.modifiers.shift then

@@ -3,9 +3,13 @@
   Core data structures for novels, chapters, and scenes
 -/
 
+import Lean.Data.Json
 import Enchiridion.Core.Types
+import Enchiridion.Core.Json
 
 namespace Enchiridion
+
+open Lean Json
 
 /-- A single scene within a chapter -/
 structure Scene where
@@ -42,6 +46,40 @@ def isEmpty (scene : Scene) : Bool :=
   scene.content.trim.isEmpty
 
 end Scene
+
+-- Scene JSON instances
+instance : ToJson Scene where
+  toJson s := Json.mkObj [
+    ("id", toJson s.id),
+    ("title", Json.str s.title),
+    ("content", Json.str s.content),
+    ("synopsis", Json.str s.synopsis),
+    ("notes", Json.str s.notes),
+    ("wordCount", Json.num s.wordCount),
+    ("createdAt", toJson s.createdAt),
+    ("modifiedAt", toJson s.modifiedAt)
+  ]
+
+instance : FromJson Scene where
+  fromJson? json := do
+    let id ← (json.getObjVal? "id") >>= fromJson?
+    let title ← json.getObjValAs? String "title"
+    let content ← json.getObjValAs? String "content" <|> pure ""
+    let synopsis ← json.getObjValAs? String "synopsis" <|> pure ""
+    let notes ← json.getObjValAs? String "notes" <|> pure ""
+    let wordCount ← json.getObjValAs? Nat "wordCount" <|> pure 0
+    let createdAt ← (json.getObjVal? "createdAt") >>= fromJson? <|> pure Timestamp.zero
+    let modifiedAt ← (json.getObjVal? "modifiedAt") >>= fromJson? <|> pure Timestamp.zero
+    return {
+      id := id
+      title := title
+      content := content
+      synopsis := synopsis
+      notes := notes
+      wordCount := wordCount
+      createdAt := createdAt
+      modifiedAt := modifiedAt
+    }
 
 /-- A chapter containing multiple scenes -/
 structure Chapter where
@@ -91,6 +129,41 @@ def sceneCount (chapter : Chapter) : Nat :=
   chapter.scenes.size
 
 end Chapter
+
+-- Chapter JSON instances
+instance : ToJson Chapter where
+  toJson c := Json.mkObj [
+    ("id", toJson c.id),
+    ("title", Json.str c.title),
+    ("scenes", toJson c.scenes),
+    ("synopsis", Json.str c.synopsis),
+    ("notes", Json.str c.notes),
+    ("collapsed", Json.bool c.collapsed),
+    ("createdAt", toJson c.createdAt),
+    ("modifiedAt", toJson c.modifiedAt)
+  ]
+
+instance : FromJson Chapter where
+  fromJson? json := do
+    let id ← (json.getObjVal? "id") >>= fromJson?
+    let title ← json.getObjValAs? String "title"
+    let scenesJson ← json.getObjVal? "scenes" <|> pure (Json.arr #[])
+    let scenes ← fromJson? scenesJson <|> pure #[]
+    let synopsis ← json.getObjValAs? String "synopsis" <|> pure ""
+    let notes ← json.getObjValAs? String "notes" <|> pure ""
+    let collapsed ← json.getObjValAs? Bool "collapsed" <|> pure false
+    let createdAt ← (json.getObjVal? "createdAt") >>= fromJson? <|> pure Timestamp.zero
+    let modifiedAt ← (json.getObjVal? "modifiedAt") >>= fromJson? <|> pure Timestamp.zero
+    return {
+      id := id
+      title := title
+      scenes := scenes
+      synopsis := synopsis
+      notes := notes
+      collapsed := collapsed
+      createdAt := createdAt
+      modifiedAt := modifiedAt
+    }
 
 /-- The novel itself -/
 structure Novel where
@@ -157,5 +230,40 @@ def sceneCount (novel : Novel) : Nat :=
   novel.chapters.foldl (fun acc c => acc + c.sceneCount) 0
 
 end Novel
+
+-- Novel JSON instances
+instance : ToJson Novel where
+  toJson n := Json.mkObj [
+    ("id", toJson n.id),
+    ("title", Json.str n.title),
+    ("author", Json.str n.author),
+    ("genre", Json.str n.genre),
+    ("synopsis", Json.str n.synopsis),
+    ("chapters", toJson n.chapters),
+    ("createdAt", toJson n.createdAt),
+    ("modifiedAt", toJson n.modifiedAt)
+  ]
+
+instance : FromJson Novel where
+  fromJson? json := do
+    let id ← (json.getObjVal? "id") >>= fromJson?
+    let title ← json.getObjValAs? String "title"
+    let author ← json.getObjValAs? String "author" <|> pure ""
+    let genre ← json.getObjValAs? String "genre" <|> pure ""
+    let synopsis ← json.getObjValAs? String "synopsis" <|> pure ""
+    let chaptersJson ← json.getObjVal? "chapters" <|> pure (Json.arr #[])
+    let chapters ← fromJson? chaptersJson <|> pure #[]
+    let createdAt ← (json.getObjVal? "createdAt") >>= fromJson? <|> pure Timestamp.zero
+    let modifiedAt ← (json.getObjVal? "modifiedAt") >>= fromJson? <|> pure Timestamp.zero
+    return {
+      id := id
+      title := title
+      author := author
+      genre := genre
+      synopsis := synopsis
+      chapters := chapters
+      createdAt := createdAt
+      modifiedAt := modifiedAt
+    }
 
 end Enchiridion

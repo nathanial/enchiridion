@@ -3,12 +3,16 @@
   Container for novel and project metadata
 -/
 
+import Lean.Data.Json
 import Enchiridion.Core.Types
+import Enchiridion.Core.Json
 import Enchiridion.Model.Novel
 import Enchiridion.Model.Character
 import Enchiridion.Model.WorldNote
 
 namespace Enchiridion
+
+open Lean Json
 
 /-- Project metadata -/
 structure ProjectMeta where
@@ -102,5 +106,59 @@ def worldNoteCount (project : Project) : Nat :=
   project.worldNotes.size
 
 end Project
+
+-- ProjectMeta JSON instances
+instance : ToJson ProjectMeta where
+  toJson m := Json.mkObj [
+    ("version", Json.str m.version),
+    ("lastOpenedChapterId", match m.lastOpenedChapterId with
+      | some id => toJson id
+      | none => Json.null),
+    ("lastOpenedSceneId", match m.lastOpenedSceneId with
+      | some id => toJson id
+      | none => Json.null)
+  ]
+
+instance : FromJson ProjectMeta where
+  fromJson? json := do
+    let version ← json.getObjValAs? String "version" <|> pure "1.0"
+    let lastChapterId ← match json.getObjVal? "lastOpenedChapterId" with
+      | .ok j => if j.isNull then pure none else some <$> fromJson? j
+      | .error _ => pure none
+    let lastSceneId ← match json.getObjVal? "lastOpenedSceneId" with
+      | .ok j => if j.isNull then pure none else some <$> fromJson? j
+      | .error _ => pure none
+    return {
+      version := version
+      lastOpenedChapterId := lastChapterId
+      lastOpenedSceneId := lastSceneId
+    }
+
+-- Project JSON instances
+instance : ToJson Project where
+  toJson p := Json.mkObj [
+    ("version", Json.str p.metadata.version),
+    ("novel", toJson p.novel),
+    ("characters", toJson p.characters),
+    ("worldNotes", toJson p.worldNotes),
+    ("metadata", toJson p.metadata)
+  ]
+
+instance : FromJson Project where
+  fromJson? json := do
+    let novel ← (json.getObjVal? "novel") >>= fromJson?
+    let charsJson ← json.getObjVal? "characters" <|> pure (Json.arr #[])
+    let characters ← fromJson? charsJson <|> pure #[]
+    let notesJson ← json.getObjVal? "worldNotes" <|> pure (Json.arr #[])
+    let worldNotes ← fromJson? notesJson <|> pure #[]
+    let metadata ← (json.getObjVal? "metadata") >>= fromJson? <|> pure {}
+    return {
+      novel := novel
+      characters := characters
+      worldNotes := worldNotes
+      metadata := metadata
+      filePath := none
+      isDirty := false
+    }
 
 end Enchiridion

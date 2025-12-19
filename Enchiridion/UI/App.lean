@@ -6,6 +6,9 @@
 import Terminus
 import Enchiridion.State.AppState
 import Enchiridion.Model.Novel
+import Enchiridion.Storage.FileIO
+import Enchiridion.AI.OpenRouter
+import Enchiridion.AI.Prompts
 import Enchiridion.UI.Draw
 import Enchiridion.UI.Update
 
@@ -85,6 +88,66 @@ def processPendingActions (state : AppState) : IO AppState := do
       state := state.addNewScene scene
       state := state.setStatus s!"Created new scene: {scene.title}"
 
+  -- Handle save request
+  if state.pendingSave then
+    let path := state.project.filePath.getD (Storage.defaultSavePath state.project)
+    let result ← Storage.saveProject state.project path
+    match result with
+    | .ok _ =>
+      let project := state.project.markClean |>.setFilePath path
+      state := { state with project := project }
+      state := state.setStatus s!"Saved to {path}"
+    | .error msg =>
+      state := state.setError msg
+
+  -- Handle AI message request
+  if let some userMessage := state.pendingAIMessage then
+    -- Check if API key is configured
+    if state.openRouterApiKey.isEmpty then
+      state := state.setError "OpenRouter API key not configured. Set OPENROUTER_API_KEY env var."
+    else
+      -- Add user message to chat
+      let userMsg ← ChatMessage.create "user" userMessage
+      state := state.addChatMessage userMsg
+
+      -- Build context and send to AI
+      let config : AI.OpenRouterConfig := {
+        apiKey := state.openRouterApiKey
+        model := state.selectedModel
+      }
+
+      -- Get current scene content for context
+      let sceneContent := state.editorTextArea.text
+      let currentChapter := match state.currentChapterId with
+        | some cid => state.project.novel.getChapter cid
+        | none => none
+      let currentScene := match state.currentChapterId, state.currentSceneId with
+        | some cid, some sid => state.project.novel.getScene cid sid
+        | _, _ => none
+
+      -- Build the full prompt with context
+      let fullPrompt := AI.buildPrompt .custom state.project sceneContent currentChapter currentScene userMessage
+
+      -- Build messages for API
+      let systemMsg : AI.APIMessage := { role := .system, content := AI.systemPrompt }
+      let userApiMsg : AI.APIMessage := { role := .user, content := fullPrompt }
+      let apiMessages := #[systemMsg, userApiMsg]
+
+      -- Send request
+      state := { state with isStreaming := true }
+      state := state.setStatus "Thinking..."
+
+      let result ← AI.sendChatCompletion config apiMessages
+      match result with
+      | .ok content =>
+        let assistantMsg ← ChatMessage.create "assistant" content
+        state := state.addChatMessage assistantMsg
+        state := { state with isStreaming := false }
+        state := state.clearStatus
+      | .error errMsg =>
+        state := { state with isStreaming := false }
+        state := state.setError s!"AI Error: {errMsg}"
+
   -- Clear the pending flags
   state := state.clearPendingActions
   return state
@@ -150,7 +213,13 @@ def run : IO Unit := do
   IO.println "Starting Enchiridion..."
 
   -- Create initial state
-  let initialState ← createSampleProject
+  let mut initialState ← createSampleProject
+
+  -- Load API key from environment
+  let apiKey ← IO.getEnv "OPENROUTER_API_KEY"
+  match apiKey with
+  | some key => initialState := { initialState with openRouterApiKey := key }
+  | none => IO.eprintln "Warning: OPENROUTER_API_KEY not set. AI features will not work."
 
   -- Run the app with our custom IO-aware loop
   runAppWithIO initialState draw

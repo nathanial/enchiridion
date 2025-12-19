@@ -6,4 +6,6 @@
 import Enchiridion.Core
 import Enchiridion.Model
 import Enchiridion.State
+import Enchiridion.Storage
+import Enchiridion.AI
 import Enchiridion.UI

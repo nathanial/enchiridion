@@ -180,26 +180,44 @@ def drawNotes (frame : Frame) (state : AppState) (area : Rect) (focused : Bool) 
 
 /-- Draw the status bar -/
 def drawStatus (frame : Frame) (state : AppState) (area : Rect) : Frame :=
-  let novel := state.project.novel
-  let wordCount := state.project.totalWordCount
-  let sceneInfo := state.getCurrentSceneTitle
-  let dirtyIndicator := if state.project.isDirty then " [*]" else ""
+  -- Check for error or status messages first
+  match state.errorMessage with
+  | some err =>
+    let errStyle := Style.default.withBg Color.red |>.withFg Color.white
+    let fillLine := String.ofList (List.replicate area.width ' ')
+    let frame := frame.writeString area.x area.y fillLine errStyle
+    let errMsg := s!" Error: {err.take (area.width - 10)}"
+    frame.writeString area.x area.y errMsg errStyle
+  | none =>
+    match state.statusMessage with
+    | some status =>
+      let statusStyle := Style.default.withBg Color.blue |>.withFg Color.white
+      let fillLine := String.ofList (List.replicate area.width ' ')
+      let frame := frame.writeString area.x area.y fillLine statusStyle
+      let statusMsg := s!" {status.take (area.width - 4)}"
+      frame.writeString area.x area.y statusMsg statusStyle
+    | none =>
+      -- Normal status bar
+      let novel := state.project.novel
+      let wordCount := state.project.totalWordCount
+      let sceneInfo := state.getCurrentSceneTitle
+      let dirtyIndicator := if state.project.isDirty then " [*]" else ""
 
-  let leftInfo := s!" {novel.title}{dirtyIndicator} | {sceneInfo}"
-  let rightInfo := s!"Words: {wordCount} | {state.focus} "
+      let leftInfo := s!" {novel.title}{dirtyIndicator} | {sceneInfo}"
+      let rightInfo := s!"Words: {wordCount} | {state.focus} "
 
-  let bgStyle := Style.default.withBg Color.gray |>.withFg Color.white
+      let bgStyle := Style.default.withBg Color.gray |>.withFg Color.white
 
-  -- Fill with background color
-  let fillLine := String.ofList (List.replicate area.width ' ')
-  let frame := frame.writeString area.x area.y fillLine bgStyle
+      -- Fill with background color
+      let fillLine := String.ofList (List.replicate area.width ' ')
+      let frame := frame.writeString area.x area.y fillLine bgStyle
 
-  -- Write left info
-  let frame := frame.writeString area.x area.y leftInfo bgStyle
+      -- Write left info
+      let frame := frame.writeString area.x area.y leftInfo bgStyle
 
-  -- Calculate right position and write right info
-  let rightX := if area.width > rightInfo.length then area.x + area.width - rightInfo.length else area.x
-  frame.writeString rightX area.y rightInfo bgStyle
+      -- Calculate right position and write right info
+      let rightX := if area.width > rightInfo.length then area.x + area.width - rightInfo.length else area.x
+      frame.writeString rightX area.y rightInfo bgStyle
 
 /-- Main draw function -/
 def draw (frame : Frame) (state : AppState) : Frame :=

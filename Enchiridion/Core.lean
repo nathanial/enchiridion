@@ -4,6 +4,7 @@
 -/
 
 import Enchiridion.Core.Types
+import Enchiridion.Core.Json
 
 namespace Enchiridion.Core
 
