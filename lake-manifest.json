@@ -3,6 +3,13 @@
  "packages":
  [{"type": "path",
    "scope": "",
+   "name": "crucible",
+   "manifestFile": "lake-manifest.json",
+   "inherited": false,
+   "dir": "../crucible",
+   "configFile": "lakefile.lean"},
+  {"type": "path",
+   "scope": "",
    "name": "wisp",
    "manifestFile": "lake-manifest.json",
    "inherited": false,

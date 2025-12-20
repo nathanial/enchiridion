@@ -2,318 +2,326 @@
   Enchiridion Tests
 -/
 
+import Crucible
 import Enchiridion
+
+namespace Enchiridion.Tests
+
+open Crucible
 
 /-- Helper to check if a substring exists in a string -/
 def containsSubstr (haystack : String) (needle : String) : Bool :=
   (haystack.splitOn needle).length > 1
 
-def main : IO Unit := do
-  IO.println "Enchiridion Tests"
-  IO.println "================="
+testSuite "Enchiridion Tests"
 
-  -- Test EntityId generation
-  IO.println "\n1. EntityId generation"
+/-! ## EntityId Tests -/
+
+test "EntityId generation produces unique IDs" := do
   let id1 ← Enchiridion.EntityId.generate
   let id2 ← Enchiridion.EntityId.generate
-  IO.println s!"  Generated ID 1: {id1}"
-  IO.println s!"  Generated ID 2: {id2}"
-  if id1 != id2 then
-    IO.println "  ✓ IDs are unique"
-  else
-    IO.println "  ✗ IDs should be unique"
+  ensure (id1 != id2) "IDs should be unique"
 
-  -- Test Timestamp
-  IO.println "\n2. Timestamp"
+/-! ## Timestamp Tests -/
+
+test "Timestamp.now returns valid timestamp" := do
   let ts ← Enchiridion.Timestamp.now
-  IO.println s!"  Current timestamp: {ts}"
+  ensure (ts.unixMs > 0) "Timestamp should be positive"
 
-  -- Test Novel creation
-  IO.println "\n3. Novel creation"
+/-! ## Novel Tests -/
+
+test "Novel creation" := do
   let novel ← Enchiridion.Novel.create "Test Novel" "Test Author"
-  IO.println s!"  Created novel: {novel.title} by {novel.author}"
+  novel.title ≡ "Test Novel"
+  novel.author ≡ "Test Author"
 
-  -- Test Chapter and Scene
-  IO.println "\n4. Chapter and Scene"
+/-! ## Chapter and Scene Tests -/
+
+test "Chapter and Scene creation with word count" := do
   let chapter ← Enchiridion.Chapter.create "Chapter 1"
   let scene ← Enchiridion.Scene.create "Scene 1"
   let scene := { scene with content := "This is some test content with multiple words." }
   let scene := scene.updateWordCount
-  IO.println s!"  Created chapter: {chapter.title}"
-  IO.println s!"  Created scene: {scene.title} (word count: {scene.wordCount})"
+  chapter.title ≡ "Chapter 1"
+  scene.title ≡ "Scene 1"
+  ensure (scene.wordCount > 0) "Word count should be positive"
 
-  -- Test Project
-  IO.println "\n5. Project creation"
+/-! ## Project Tests -/
+
+test "Project creation" := do
   let project ← Enchiridion.Project.create "My Novel" "Author Name"
-  IO.println s!"  Created project with novel: {project.novel.title}"
+  project.novel.title ≡ "My Novel"
 
-  -- Test Character
-  IO.println "\n6. Character CRUD"
+/-! ## Character Tests -/
+
+test "Character CRUD" := do
   let char ← Enchiridion.Character.create "Sarah"
   let char := { char with description := "The protagonist" }
-  IO.println s!"  Created character: {char.name}"
-  IO.println s!"  Description: {char.description}"
-  if char.name == "Sarah" && char.description == "The protagonist" then
-    IO.println "  ✓ Character creation works"
-  else
-    IO.println "  ✗ Character creation failed"
+  char.name ≡ "Sarah"
+  char.description ≡ "The protagonist"
 
-  -- Test WorldNote
-  IO.println "\n7. WorldNote CRUD"
+/-! ## WorldNote Tests -/
+
+test "WorldNote CRUD" := do
   let note ← Enchiridion.WorldNote.create "The Old Kingdom"
   let note := { note with content := "An ancient land of mystery", category := .location }
-  IO.println s!"  Created note: {note.title}"
-  IO.println s!"  Category: {note.category}"
-  IO.println s!"  Content: {note.content}"
-  if note.title == "The Old Kingdom" && note.category == .location then
-    IO.println "  ✓ WorldNote creation works"
-  else
-    IO.println "  ✗ WorldNote creation failed"
+  note.title ≡ "The Old Kingdom"
+  note.category ≡ Enchiridion.NoteCategory.location
+  note.content ≡ "An ancient land of mystery"
 
-  -- Test AppState character operations
-  IO.println "\n8. AppState Character Operations"
+/-! ## AppState Character Operations -/
+
+test "addNewCharacter works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
   let mut state := Enchiridion.AppState.fromProject project
-
-  -- Add character
   let char1 ← Enchiridion.Character.create "Character 1"
   state := state.addNewCharacter char1
-  if state.project.characters.size == 1 then
-    IO.println "  ✓ addNewCharacter works"
-  else
-    IO.println "  ✗ addNewCharacter failed"
+  state.project.characters.size ≡ 1
 
-  -- Add another character
+test "Adding second character updates selection" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  let char1 ← Enchiridion.Character.create "Character 1"
+  state := state.addNewCharacter char1
   let char2 ← Enchiridion.Character.create "Character 2"
   state := state.addNewCharacter char2
-  if state.project.characters.size == 2 && state.selectedCharacterIdx == 1 then
-    IO.println "  ✓ Adding second character updates selection"
-  else
-    IO.println "  ✗ Selection not updated correctly"
+  state.project.characters.size ≡ 2
+  state.selectedCharacterIdx ≡ 1
 
-  -- Edit character (enter edit mode)
+test "editSelectedCharacter enters edit mode" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  let char1 ← Enchiridion.Character.create "Character 1"
+  state := state.addNewCharacter char1
   state := { state with selectedCharacterIdx := 0 }
   state := state.editSelectedCharacter
-  if state.notesEditMode && state.notesNameInput.value == "Character 1" then
-    IO.println "  ✓ editSelectedCharacter enters edit mode"
-  else
-    IO.println "  ✗ editSelectedCharacter failed"
+  ensure state.notesEditMode "Should be in edit mode"
+  state.notesNameInput.value ≡ "Character 1"
 
-  -- Modify and save
+test "saveCharacterEdits works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  let char1 ← Enchiridion.Character.create "Character 1"
+  state := state.addNewCharacter char1
+  state := { state with selectedCharacterIdx := 0 }
+  state := state.editSelectedCharacter
   state := { state with
     notesNameInput := state.notesNameInput.withValue "Updated Name"
     notesContentArea := Terminus.TextArea.fromString "New description" }
   state := state.saveCharacterEdits
-  if !state.notesEditMode && state.project.characters[0]!.name == "Updated Name" then
-    IO.println "  ✓ saveCharacterEdits works"
-  else
-    IO.println "  ✗ saveCharacterEdits failed"
+  ensure (!state.notesEditMode) "Should exit edit mode"
+  state.project.characters[0]!.name ≡ "Updated Name"
 
-  -- Delete character
+test "deleteSelectedCharacter works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  let char1 ← Enchiridion.Character.create "Character 1"
+  state := state.addNewCharacter char1
+  let char2 ← Enchiridion.Character.create "Character 2"
+  state := state.addNewCharacter char2
   state := { state with selectedCharacterIdx := 1 }
   state := state.deleteSelectedCharacter
-  if state.project.characters.size == 1 && state.selectedCharacterIdx == 0 then
-    IO.println "  ✓ deleteSelectedCharacter works"
-  else
-    IO.println "  ✗ deleteSelectedCharacter failed"
+  state.project.characters.size ≡ 1
+  state.selectedCharacterIdx ≡ 0
 
-  -- Test AppState world note operations
-  IO.println "\n9. AppState WorldNote Operations"
+/-! ## AppState WorldNote Operations -/
 
-  -- Add world note
+test "addNewWorldNote works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
   let note1 ← Enchiridion.WorldNote.create "Note 1"
   state := state.addNewWorldNote note1
-  if state.project.worldNotes.size == 1 then
-    IO.println "  ✓ addNewWorldNote works"
-  else
-    IO.println "  ✗ addNewWorldNote failed"
+  state.project.worldNotes.size ≡ 1
 
-  -- Add another note
+test "Adding second note updates selection" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  let note1 ← Enchiridion.WorldNote.create "Note 1"
+  state := state.addNewWorldNote note1
   let note2 ← Enchiridion.WorldNote.create "Note 2"
   state := state.addNewWorldNote note2
-  if state.project.worldNotes.size == 2 && state.selectedNoteIdx == 1 then
-    IO.println "  ✓ Adding second note updates selection"
-  else
-    IO.println "  ✗ Selection not updated correctly"
+  state.project.worldNotes.size ≡ 2
+  state.selectedNoteIdx ≡ 1
 
-  -- Edit world note
+test "editSelectedWorldNote enters edit mode" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  let note1 ← Enchiridion.WorldNote.create "Note 1"
+  state := state.addNewWorldNote note1
   state := { state with selectedNoteIdx := 0, notesTab := 1 }
   state := state.editSelectedWorldNote
-  if state.notesEditMode && state.notesNameInput.value == "Note 1" then
-    IO.println "  ✓ editSelectedWorldNote enters edit mode"
-  else
-    IO.println "  ✗ editSelectedWorldNote failed"
+  ensure state.notesEditMode "Should be in edit mode"
+  state.notesNameInput.value ≡ "Note 1"
 
-  -- Modify and save
+test "saveWorldNoteEdits works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  let note1 ← Enchiridion.WorldNote.create "Note 1"
+  state := state.addNewWorldNote note1
+  state := { state with selectedNoteIdx := 0, notesTab := 1 }
+  state := state.editSelectedWorldNote
   state := { state with
     notesNameInput := state.notesNameInput.withValue "Updated Note"
     notesContentArea := Terminus.TextArea.fromString "New content" }
   state := state.saveWorldNoteEdits
-  if !state.notesEditMode && state.project.worldNotes[0]!.title == "Updated Note" then
-    IO.println "  ✓ saveWorldNoteEdits works"
-  else
-    IO.println "  ✗ saveWorldNoteEdits failed"
+  ensure (!state.notesEditMode) "Should exit edit mode"
+  state.project.worldNotes[0]!.title ≡ "Updated Note"
 
-  -- Delete world note
+test "deleteSelectedWorldNote works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  let note1 ← Enchiridion.WorldNote.create "Note 1"
+  state := state.addNewWorldNote note1
+  let note2 ← Enchiridion.WorldNote.create "Note 2"
+  state := state.addNewWorldNote note2
   state := { state with selectedNoteIdx := 1 }
   state := state.deleteSelectedWorldNote
-  if state.project.worldNotes.size == 1 && state.selectedNoteIdx == 0 then
-    IO.println "  ✓ deleteSelectedWorldNote works"
-  else
-    IO.println "  ✗ deleteSelectedWorldNote failed"
+  state.project.worldNotes.size ≡ 1
+  state.selectedNoteIdx ≡ 0
 
-  -- Test pending action flags
-  IO.println "\n10. Pending Action Flags"
+/-! ## Pending Action Flags -/
+
+test "requestNewCharacter sets flag" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
   state := state.requestNewCharacter
-  if state.pendingNewCharacter then
-    IO.println "  ✓ requestNewCharacter sets flag"
-  else
-    IO.println "  ✗ requestNewCharacter failed"
+  ensure state.pendingNewCharacter "Flag should be set"
 
+test "requestNewWorldNote sets flag" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
   state := state.requestNewWorldNote
-  if state.pendingNewWorldNote then
-    IO.println "  ✓ requestNewWorldNote sets flag"
-  else
-    IO.println "  ✗ requestNewWorldNote failed"
+  ensure state.pendingNewWorldNote "Flag should be set"
 
-  if state.hasPendingActions then
-    IO.println "  ✓ hasPendingActions detects flags"
-  else
-    IO.println "  ✗ hasPendingActions failed"
+test "hasPendingActions detects flags" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  state := state.requestNewCharacter
+  ensure state.hasPendingActions "Should detect pending actions"
 
+test "clearPendingActions works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  state := state.requestNewCharacter
   state := state.clearPendingActions
-  if !state.hasPendingActions then
-    IO.println "  ✓ clearPendingActions works"
-  else
-    IO.println "  ✗ clearPendingActions failed"
+  ensure (!state.hasPendingActions) "Should clear pending actions"
 
-  -- Test AI Writing Actions
-  IO.println "\n11. AI Writing Action Types"
-  -- Test AIWritingAction properties
-  if Enchiridion.AIWritingAction.continue_.shouldInsertIntoEditor then
-    IO.println "  ✓ continue_ shouldInsertIntoEditor = true"
-  else
-    IO.println "  ✗ continue_ shouldInsertIntoEditor failed"
+/-! ## AI Writing Action Types -/
 
-  if !Enchiridion.AIWritingAction.brainstorm.shouldInsertIntoEditor then
-    IO.println "  ✓ brainstorm shouldInsertIntoEditor = false"
-  else
-    IO.println "  ✗ brainstorm shouldInsertIntoEditor failed"
+test "continue_ shouldInsertIntoEditor = true" := do
+  ensure Enchiridion.AIWritingAction.continue_.shouldInsertIntoEditor
+    "continue_ should insert into editor"
 
-  if Enchiridion.AIWritingAction.continue_.instruction.length > 0 then
-    IO.println "  ✓ AIWritingAction instructions defined"
-  else
-    IO.println "  ✗ AIWritingAction instructions missing"
+test "brainstorm shouldInsertIntoEditor = false" := do
+  ensure (!Enchiridion.AIWritingAction.brainstorm.shouldInsertIntoEditor)
+    "brainstorm should not insert into editor"
 
-  IO.println "\n12. AI Writing Action State"
-  -- Request AI writing action
+test "AIWritingAction instructions defined" := do
+  ensure (Enchiridion.AIWritingAction.continue_.instruction.length > 0)
+    "Instructions should be defined"
+
+/-! ## AI Writing Action State -/
+
+test "requestAIWritingAction works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
   state := state.requestAIWritingAction .continue_
-  if state.pendingAIWritingAction == some .continue_ && state.insertAIResponseIntoEditor then
-    IO.println "  ✓ requestAIWritingAction works"
-  else
-    IO.println "  ✗ requestAIWritingAction failed"
+  state.pendingAIWritingAction ≡ some .continue_
+  ensure state.insertAIResponseIntoEditor "Should set insert flag"
 
-  -- Clear AI writing action
+test "clearAIWritingAction works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  state := state.requestAIWritingAction .continue_
   state := state.clearAIWritingAction
-  if state.pendingAIWritingAction.isNone then
-    IO.println "  ✓ clearAIWritingAction works"
-  else
-    IO.println "  ✗ clearAIWritingAction failed"
+  ensure state.pendingAIWritingAction.isNone "Should clear action"
 
-  -- Test brainstorm (shouldn't insert into editor)
+test "brainstorm sets insertAIResponseIntoEditor = false" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
   state := state.requestAIWritingAction .brainstorm
-  if !state.insertAIResponseIntoEditor then
-    IO.println "  ✓ brainstorm sets insertAIResponseIntoEditor = false"
-  else
-    IO.println "  ✗ brainstorm insertAIResponseIntoEditor failed"
+  ensure (!state.insertAIResponseIntoEditor) "Should not insert for brainstorm"
 
-  IO.println "\n13. Editor Text Manipulation"
-  -- Set up editor with some content
+/-! ## Editor Text Manipulation -/
+
+test "appendTextToEditor works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
   let testContent := "Line 1\nLine 2\nLine 3"
   state := { state with editorTextArea := Terminus.TextArea.fromString testContent }
-
-  -- Test appendTextToEditor
   state := state.appendTextToEditor "Appended text"
   let editorText := state.editorTextArea.text
-  if editorText.endsWith "Appended text" then
-    IO.println "  ✓ appendTextToEditor works"
-  else
-    IO.println "  ✗ appendTextToEditor failed"
+  ensure (editorText.endsWith "Appended text") "Text should be appended"
 
-  -- Test replaceEditorContent
+test "replaceEditorContent works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  state := { state with editorTextArea := Terminus.TextArea.fromString "Old content" }
   state := state.replaceEditorContent "Completely new content"
-  if state.editorTextArea.text == "Completely new content" then
-    IO.println "  ✓ replaceEditorContent works"
-  else
-    IO.println "  ✗ replaceEditorContent failed"
+  state.editorTextArea.text ≡ "Completely new content"
 
-  -- Test insertTextAtCursor (single line)
+test "insertTextAtCursor (single line) works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
   state := { state with editorTextArea := Terminus.TextArea.fromString "Hello World" }
-  state := { state with editorTextArea := { state.editorTextArea with cursorCol := 6 } }  -- After "Hello "
+  state := { state with editorTextArea := { state.editorTextArea with cursorCol := 6 } }
   state := state.insertTextAtCursor "Beautiful "
-  if state.editorTextArea.text == "Hello Beautiful World" then
-    IO.println "  ✓ insertTextAtCursor (single line) works"
-  else
-    IO.println s!"  ✗ insertTextAtCursor (single line) failed: got '{state.editorTextArea.text}'"
+  state.editorTextArea.text ≡ "Hello Beautiful World"
 
-  IO.println "\n14. Handle AI Writing Response"
-  -- Setup for continue action
+/-! ## Handle AI Writing Response -/
+
+test "handleAIWritingResponse appends for continue" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
   state := state.requestAIWritingAction .continue_
   state := { state with editorTextArea := Terminus.TextArea.fromString "Original content" }
   state := state.handleAIWritingResponse "AI generated text"
-  -- Check if the text contains the AI response (using endsWith since it appends)
-  if state.editorTextArea.text.endsWith "AI generated text" then
-    IO.println "  ✓ handleAIWritingResponse appends for continue"
-  else
-    IO.println s!"  ✗ handleAIWritingResponse append failed: got '{state.editorTextArea.text}'"
+  ensure (state.editorTextArea.text.endsWith "AI generated text")
+    "Should append AI response"
 
-  -- Test rewrite (replaces content)
+test "handleAIWritingResponse replaces for rewrite" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
   state := state.requestAIWritingAction .rewrite
+  state := { state with editorTextArea := Terminus.TextArea.fromString "Old content" }
   state := state.handleAIWritingResponse "Rewritten content"
-  if state.editorTextArea.text == "Rewritten content" then
-    IO.println "  ✓ handleAIWritingResponse replaces for rewrite"
-  else
-    IO.println "  ✗ handleAIWritingResponse rewrite failed"
+  state.editorTextArea.text ≡ "Rewritten content"
 
-  -- Test brainstorm (shouldn't modify editor)
+test "handleAIWritingResponse ignores brainstorm" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
   state := state.requestAIWritingAction .brainstorm
+  state := { state with editorTextArea := Terminus.TextArea.fromString "Original" }
   let beforeBrainstorm := state.editorTextArea.text
   state := state.handleAIWritingResponse "Ideas that shouldn't appear in editor"
-  if state.editorTextArea.text == beforeBrainstorm then
-    IO.println "  ✓ handleAIWritingResponse ignores brainstorm"
-  else
-    IO.println "  ✗ handleAIWritingResponse brainstorm should not modify editor"
+  state.editorTextArea.text ≡ beforeBrainstorm
 
-  -- Test Help Mode Toggle
-  IO.println "\n15. Help Mode Toggle"
-  state := state.hideHelp  -- Ensure not in help mode
-  if state.mode != .help then
-    IO.println "  ✓ Initial state is not help mode"
-  else
-    IO.println "  ✗ Should not start in help mode"
+/-! ## Help Mode Toggle -/
 
+test "showHelp enters help mode" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  state := state.hideHelp
   state := state.showHelp
-  if state.mode == .help then
-    IO.println "  ✓ showHelp enters help mode"
-  else
-    IO.println "  ✗ showHelp failed"
+  state.mode ≡ Enchiridion.AppMode.help
 
+test "toggleHelp exits help mode" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  state := state.showHelp
   state := state.toggleHelp
-  if state.mode != .help then
-    IO.println "  ✓ toggleHelp exits help mode"
-  else
-    IO.println "  ✗ toggleHelp should exit help mode"
+  ensure (state.mode != Enchiridion.AppMode.help) "Should exit help mode"
 
+test "toggleHelp enters help mode again" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  state := state.hideHelp
   state := state.toggleHelp
-  if state.mode == .help then
-    IO.println "  ✓ toggleHelp enters help mode again"
-  else
-    IO.println "  ✗ toggleHelp should enter help mode"
+  state.mode ≡ Enchiridion.AppMode.help
 
-  state := state.hideHelp  -- Reset state
+/-! ## Word Count Stats -/
 
-  -- Test Word Count Stats
-  IO.println "\n16. Word Count Stats"
-  -- Create a project with known word count
+test "Word count stats contains word count" := do
   let mut testNovel ← Enchiridion.Novel.create "Test Novel" "Test Author"
   let mut testChapter ← Enchiridion.Chapter.create "Chapter 1"
   let mut testScene ← Enchiridion.Scene.create "Test Scene"
@@ -321,67 +329,111 @@ def main : IO Unit := do
   testScene := testScene.updateWordCount
   testChapter := testChapter.addScene testScene
   testNovel := testNovel.addChapter testChapter
-
   let testProject : Enchiridion.Project := {
     novel := testNovel
     characters := #[]
     worldNotes := #[]
   }
-  state := Enchiridion.AppState.fromProject testProject
-
-  -- getWordCountStats returns a formatted string
+  let state := Enchiridion.AppState.fromProject testProject
   let stats := state.getWordCountStats
-  -- Check that stats string contains expected values
-  if containsSubstr stats "5 words" then
-    IO.println "  ✓ Word count stats contains word count"
-  else
-    IO.println s!"  ✗ Word count stats wrong: {stats}"
+  ensure (containsSubstr stats "5 words") "Should contain word count"
 
-  if containsSubstr stats "1 chapters" then
-    IO.println "  ✓ Word count stats contains chapter count"
-  else
-    IO.println s!"  ✗ Chapter count missing from: {stats}"
+test "Word count stats contains chapter count" := do
+  let mut testNovel ← Enchiridion.Novel.create "Test Novel" "Test Author"
+  let testChapter ← Enchiridion.Chapter.create "Chapter 1"
+  testNovel := testNovel.addChapter testChapter
+  let testProject : Enchiridion.Project := {
+    novel := testNovel
+    characters := #[]
+    worldNotes := #[]
+  }
+  let state := Enchiridion.AppState.fromProject testProject
+  let stats := state.getWordCountStats
+  ensure (containsSubstr stats "1 chapters") "Should contain chapter count"
 
-  if containsSubstr stats "1 scenes" then
-    IO.println "  ✓ Word count stats contains scene count"
-  else
-    IO.println s!"  ✗ Scene count missing from: {stats}"
+test "Word count stats contains scene count" := do
+  let mut testNovel ← Enchiridion.Novel.create "Test Novel" "Test Author"
+  let mut testChapter ← Enchiridion.Chapter.create "Chapter 1"
+  let testScene ← Enchiridion.Scene.create "Test Scene"
+  testChapter := testChapter.addScene testScene
+  testNovel := testNovel.addChapter testChapter
+  let testProject : Enchiridion.Project := {
+    novel := testNovel
+    characters := #[]
+    worldNotes := #[]
+  }
+  let state := Enchiridion.AppState.fromProject testProject
+  let stats := state.getWordCountStats
+  ensure (containsSubstr stats "1 scenes") "Should contain scene count"
 
-  -- Test Export to Markdown
-  IO.println "\n17. Export to Markdown"
+/-! ## Export to Markdown -/
+
+test "Markdown export contains title" := do
+  let mut testNovel ← Enchiridion.Novel.create "Test Novel" "Test Author"
+  let testProject : Enchiridion.Project := {
+    novel := testNovel
+    characters := #[]
+    worldNotes := #[]
+  }
+  let state := Enchiridion.AppState.fromProject testProject
   let markdown := state.exportToMarkdown
-  if containsSubstr markdown "# Test Novel" then
-    IO.println "  ✓ Markdown contains title"
-  else
-    IO.println "  ✗ Markdown missing title"
+  ensure (containsSubstr markdown "# Test Novel") "Should contain title"
 
-  if containsSubstr markdown "## Chapter 1" then
-    IO.println "  ✓ Markdown contains chapter"
-  else
-    IO.println "  ✗ Markdown missing chapter"
+test "Markdown export contains chapter" := do
+  let mut testNovel ← Enchiridion.Novel.create "Test Novel" "Test Author"
+  let testChapter ← Enchiridion.Chapter.create "Chapter 1"
+  testNovel := testNovel.addChapter testChapter
+  let testProject : Enchiridion.Project := {
+    novel := testNovel
+    characters := #[]
+    worldNotes := #[]
+  }
+  let state := Enchiridion.AppState.fromProject testProject
+  let markdown := state.exportToMarkdown
+  ensure (containsSubstr markdown "## Chapter 1") "Should contain chapter"
 
-  if containsSubstr markdown "### Test Scene" then
-    IO.println "  ✓ Markdown contains scene"
-  else
-    IO.println "  ✗ Markdown missing scene"
+test "Markdown export contains scene" := do
+  let mut testNovel ← Enchiridion.Novel.create "Test Novel" "Test Author"
+  let mut testChapter ← Enchiridion.Chapter.create "Chapter 1"
+  let testScene ← Enchiridion.Scene.create "Test Scene"
+  testChapter := testChapter.addScene testScene
+  testNovel := testNovel.addChapter testChapter
+  let testProject : Enchiridion.Project := {
+    novel := testNovel
+    characters := #[]
+    worldNotes := #[]
+  }
+  let state := Enchiridion.AppState.fromProject testProject
+  let markdown := state.exportToMarkdown
+  ensure (containsSubstr markdown "### Test Scene") "Should contain scene"
 
-  if containsSubstr markdown "One two three four five." then
-    IO.println "  ✓ Markdown contains scene content"
-  else
-    IO.println "  ✗ Markdown missing scene content"
+test "Markdown export contains scene content" := do
+  let mut testNovel ← Enchiridion.Novel.create "Test Novel" "Test Author"
+  let mut testChapter ← Enchiridion.Chapter.create "Chapter 1"
+  let mut testScene ← Enchiridion.Scene.create "Test Scene"
+  testScene := { testScene with content := "One two three four five." }
+  testChapter := testChapter.addScene testScene
+  testNovel := testNovel.addChapter testChapter
+  let testProject : Enchiridion.Project := {
+    novel := testNovel
+    characters := #[]
+    worldNotes := #[]
+  }
+  let state := Enchiridion.AppState.fromProject testProject
+  let markdown := state.exportToMarkdown
+  ensure (containsSubstr markdown "One two three four five.") "Should contain scene content"
 
-  -- Test Export Request
-  IO.println "\n18. Export Request"
+/-! ## Export Request -/
+
+test "requestExport sets pendingExport flag" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
   state := state.requestExport
-  if state.pendingExport then
-    IO.println "  ✓ requestExport sets pendingExport flag"
-  else
-    IO.println "  ✗ requestExport failed"
+  ensure state.pendingExport "Flag should be set"
 
-  state := { state with pendingExport := false }  -- Reset
+/-! ## Config Tests -/
 
-  -- Test Config parsing
-  IO.println "\n19. Config Parsing"
+test "Config parsing" := do
   let configJson := Lean.Json.mkObj [
     ("openRouterApiKey", Lean.Json.str "test-key"),
     ("defaultModel", Lean.Json.str "test-model"),
@@ -390,71 +442,73 @@ def main : IO Unit := do
   ]
   match Enchiridion.Config.fromJson? configJson with
   | some config =>
-    if config.openRouterApiKey == "test-key" then
-      IO.println "  ✓ Config API key parsed correctly"
-    else
-      IO.println "  ✗ Config API key wrong"
-    if config.defaultModel == "test-model" then
-      IO.println "  ✓ Config model parsed correctly"
-    else
-      IO.println "  ✗ Config model wrong"
-    if config.autoSaveEnabled then
-      IO.println "  ✓ Config autoSaveEnabled parsed correctly"
-    else
-      IO.println "  ✗ Config autoSaveEnabled wrong"
-    if config.autoSaveIntervalMs == 30000 then
-      IO.println "  ✓ Config autoSaveIntervalMs parsed correctly"
-    else
-      IO.println "  ✗ Config autoSaveIntervalMs wrong"
+    config.openRouterApiKey ≡ "test-key"
+    config.defaultModel ≡ "test-model"
+    ensure config.autoSaveEnabled "autoSaveEnabled should be true"
+    config.autoSaveIntervalMs ≡ 30000
   | none =>
-    IO.println "  ✗ Config parsing failed"
+    throw <| IO.userError "Config parsing failed"
 
-  -- Test Config to JSON round-trip
-  IO.println "\n20. Config Round-trip"
+test "Config round-trip" := do
   let sampleConfig : Enchiridion.Config := {
     openRouterApiKey := "round-trip-key"
     defaultModel := "round-trip-model"
     autoSaveEnabled := false
     autoSaveIntervalMs := 45000
   }
-  let configJson2 := sampleConfig.toJson
-  match Enchiridion.Config.fromJson? configJson2 with
+  let configJson := sampleConfig.toJson
+  match Enchiridion.Config.fromJson? configJson with
   | some parsedConfig =>
-    if parsedConfig.openRouterApiKey == sampleConfig.openRouterApiKey &&
-       parsedConfig.defaultModel == sampleConfig.defaultModel &&
-       parsedConfig.autoSaveEnabled == sampleConfig.autoSaveEnabled &&
-       parsedConfig.autoSaveIntervalMs == sampleConfig.autoSaveIntervalMs then
-      IO.println "  ✓ Config round-trip successful"
-    else
-      IO.println "  ✗ Config round-trip data mismatch"
+    parsedConfig.openRouterApiKey ≡ sampleConfig.openRouterApiKey
+    parsedConfig.defaultModel ≡ sampleConfig.defaultModel
+    parsedConfig.autoSaveEnabled ≡ sampleConfig.autoSaveEnabled
+    parsedConfig.autoSaveIntervalMs ≡ sampleConfig.autoSaveIntervalMs
   | none =>
-    IO.println "  ✗ Config round-trip parsing failed"
+    throw <| IO.userError "Config round-trip parsing failed"
 
-  -- Test Error/Status Message Handling
-  IO.println "\n21. Error and Status Messages"
+/-! ## Error/Status Message Handling -/
+
+test "setError works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
   state := state.setError "Test error"
-  if state.errorMessage == some "Test error" then
-    IO.println "  ✓ setError works"
-  else
-    IO.println "  ✗ setError failed"
+  state.errorMessage ≡ some "Test error"
 
+test "clearError works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  state := state.setError "Test error"
   state := state.clearError
-  if state.errorMessage.isNone then
-    IO.println "  ✓ clearError works"
-  else
-    IO.println "  ✗ clearError failed"
+  ensure state.errorMessage.isNone "Error should be cleared"
 
+test "setStatus works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
   state := state.setStatus "Test status"
-  if state.statusMessage == some "Test status" then
-    IO.println "  ✓ setStatus works"
-  else
-    IO.println "  ✗ setStatus failed"
+  state.statusMessage ≡ some "Test status"
 
+test "clearStatus works" := do
+  let project ← Enchiridion.Project.create "Test" "Author"
+  let mut state := Enchiridion.AppState.fromProject project
+  state := state.setStatus "Test status"
   state := state.clearStatus
-  if state.statusMessage.isNone then
-    IO.println "  ✓ clearStatus works"
-  else
-    IO.println "  ✗ clearStatus failed"
+  ensure state.statusMessage.isNone "Status should be cleared"
 
-  IO.println "\n================="
-  IO.println "All tests completed!"
+#generate_tests
+
+end Enchiridion.Tests
+
+def main : IO Unit := do
+  IO.println "╔════════════════════════════════════════╗"
+  IO.println "║       Enchiridion Test Suite           ║"
+  IO.println "╚════════════════════════════════════════╝"
+  IO.println ""
+
+  let exitCode ← Crucible.runTests "Enchiridion Tests" Enchiridion.Tests.cases
+
+  IO.println ""
+  if exitCode == 0 then
+    IO.println "✓ All tests passed!"
+  else
+    IO.println "✗ Some tests failed"
+    IO.Process.exit 1

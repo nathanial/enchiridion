@@ -7,6 +7,7 @@ package enchiridion where
 -- Local workspace dependencies
 require terminus from ".." / "terminus"
 require wisp from ".." / "wisp"
+require crucible from ".." / "crucible"
 
 -- Curl link args (inherited from wisp, but needed for our executables)
 def curlLinkArgs : Array String :=
