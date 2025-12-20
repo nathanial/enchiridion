@@ -182,5 +182,102 @@ def main : IO Unit := do
   else
     IO.println "  ✗ clearPendingActions failed"
 
+  -- Test AI Writing Actions
+  IO.println "\n11. AI Writing Action Types"
+  -- Test AIWritingAction properties
+  if Enchiridion.AIWritingAction.continue_.shouldInsertIntoEditor then
+    IO.println "  ✓ continue_ shouldInsertIntoEditor = true"
+  else
+    IO.println "  ✗ continue_ shouldInsertIntoEditor failed"
+
+  if !Enchiridion.AIWritingAction.brainstorm.shouldInsertIntoEditor then
+    IO.println "  ✓ brainstorm shouldInsertIntoEditor = false"
+  else
+    IO.println "  ✗ brainstorm shouldInsertIntoEditor failed"
+
+  if Enchiridion.AIWritingAction.continue_.instruction.length > 0 then
+    IO.println "  ✓ AIWritingAction instructions defined"
+  else
+    IO.println "  ✗ AIWritingAction instructions missing"
+
+  IO.println "\n12. AI Writing Action State"
+  -- Request AI writing action
+  state := state.requestAIWritingAction .continue_
+  if state.pendingAIWritingAction == some .continue_ && state.insertAIResponseIntoEditor then
+    IO.println "  ✓ requestAIWritingAction works"
+  else
+    IO.println "  ✗ requestAIWritingAction failed"
+
+  -- Clear AI writing action
+  state := state.clearAIWritingAction
+  if state.pendingAIWritingAction.isNone then
+    IO.println "  ✓ clearAIWritingAction works"
+  else
+    IO.println "  ✗ clearAIWritingAction failed"
+
+  -- Test brainstorm (shouldn't insert into editor)
+  state := state.requestAIWritingAction .brainstorm
+  if !state.insertAIResponseIntoEditor then
+    IO.println "  ✓ brainstorm sets insertAIResponseIntoEditor = false"
+  else
+    IO.println "  ✗ brainstorm insertAIResponseIntoEditor failed"
+
+  IO.println "\n13. Editor Text Manipulation"
+  -- Set up editor with some content
+  let testContent := "Line 1\nLine 2\nLine 3"
+  state := { state with editorTextArea := Terminus.TextArea.fromString testContent }
+
+  -- Test appendTextToEditor
+  state := state.appendTextToEditor "Appended text"
+  let editorText := state.editorTextArea.text
+  if editorText.endsWith "Appended text" then
+    IO.println "  ✓ appendTextToEditor works"
+  else
+    IO.println "  ✗ appendTextToEditor failed"
+
+  -- Test replaceEditorContent
+  state := state.replaceEditorContent "Completely new content"
+  if state.editorTextArea.text == "Completely new content" then
+    IO.println "  ✓ replaceEditorContent works"
+  else
+    IO.println "  ✗ replaceEditorContent failed"
+
+  -- Test insertTextAtCursor (single line)
+  state := { state with editorTextArea := Terminus.TextArea.fromString "Hello World" }
+  state := { state with editorTextArea := { state.editorTextArea with cursorCol := 6 } }  -- After "Hello "
+  state := state.insertTextAtCursor "Beautiful "
+  if state.editorTextArea.text == "Hello Beautiful World" then
+    IO.println "  ✓ insertTextAtCursor (single line) works"
+  else
+    IO.println s!"  ✗ insertTextAtCursor (single line) failed: got '{state.editorTextArea.text}'"
+
+  IO.println "\n14. Handle AI Writing Response"
+  -- Setup for continue action
+  state := state.requestAIWritingAction .continue_
+  state := { state with editorTextArea := Terminus.TextArea.fromString "Original content" }
+  state := state.handleAIWritingResponse "AI generated text"
+  -- Check if the text contains the AI response (using endsWith since it appends)
+  if state.editorTextArea.text.endsWith "AI generated text" then
+    IO.println "  ✓ handleAIWritingResponse appends for continue"
+  else
+    IO.println s!"  ✗ handleAIWritingResponse append failed: got '{state.editorTextArea.text}'"
+
+  -- Test rewrite (replaces content)
+  state := state.requestAIWritingAction .rewrite
+  state := state.handleAIWritingResponse "Rewritten content"
+  if state.editorTextArea.text == "Rewritten content" then
+    IO.println "  ✓ handleAIWritingResponse replaces for rewrite"
+  else
+    IO.println "  ✗ handleAIWritingResponse rewrite failed"
+
+  -- Test brainstorm (shouldn't modify editor)
+  state := state.requestAIWritingAction .brainstorm
+  let beforeBrainstorm := state.editorTextArea.text
+  state := state.handleAIWritingResponse "Ideas that shouldn't appear in editor"
+  if state.editorTextArea.text == beforeBrainstorm then
+    IO.println "  ✓ handleAIWritingResponse ignores brainstorm"
+  else
+    IO.println "  ✗ handleAIWritingResponse brainstorm should not modify editor"
+
   IO.println "\n================="
   IO.println "All tests completed!"

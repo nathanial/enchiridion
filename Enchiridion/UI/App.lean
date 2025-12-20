@@ -154,6 +154,20 @@ def buildAPIMessages (state : AppState) (userMessage : String) : Array AI.APIMes
   let userApiMsg : AI.APIMessage := { role := .user, content := fullPrompt }
   #[systemMsg, userApiMsg]
 
+/-- Build API messages for an AI writing action -/
+def buildWritingActionMessages (state : AppState) (action : AIWritingAction) : Array AI.APIMessage :=
+  let sceneContent := state.editorTextArea.text
+  let currentChapter := match state.currentChapterId with
+    | some cid => state.project.novel.getChapter cid
+    | none => none
+  let currentScene := match state.currentChapterId, state.currentSceneId with
+    | some cid, some sid => state.project.novel.getScene cid sid
+    | _, _ => none
+  let fullPrompt := AI.buildWritingActionPrompt action state.project sceneContent currentChapter currentScene
+  let systemMsg : AI.APIMessage := { role := .system, content := AI.systemPrompt }
+  let userApiMsg : AI.APIMessage := { role := .user, content := fullPrompt }
+  #[systemMsg, userApiMsg]
+
 /-- Custom app loop with IO action support and streaming -/
 partial def runLoop (app : App AppState) (drawFn : Frame → AppState → Frame)
     (sessionRef : IO.Ref (Option AI.StreamingSession)) : IO Unit := do
@@ -162,7 +176,7 @@ partial def runLoop (app : App AppState) (drawFn : Frame → AppState → Frame)
   let mut state := app.state
   let mut session ← sessionRef.get
 
-  -- Handle starting a new streaming request
+  -- Handle starting a new streaming request from chat
   if let some userMessage := state.pendingAIMessage then
     if state.openRouterApiKey.isEmpty then
       state := state.setError "OpenRouter API key not configured. Set OPENROUTER_API_KEY env var."
@@ -197,6 +211,41 @@ partial def runLoop (app : App AppState) (drawFn : Frame → AppState → Frame)
         state := { state with isStreaming := false, streamBuffer := "" }
         state := state.setError s!"AI Error: {msg}"
 
+  -- Handle AI writing actions (Continue, Rewrite, etc.)
+  if let some action := state.pendingAIWritingAction then
+    if state.openRouterApiKey.isEmpty then
+      state := state.setError "OpenRouter API key not configured. Set OPENROUTER_API_KEY env var."
+      state := state.clearAIWritingAction
+    else
+      -- Add system message to chat showing the action
+      let actionName := toString action
+      let systemMsg ← ChatMessage.create "system" s!"[{actionName}] Generating..."
+      state := state.addChatMessage systemMsg
+
+      -- Build config and messages for writing action
+      let config : AI.OpenRouterConfig := {
+        apiKey := state.openRouterApiKey
+        model := state.selectedModel
+      }
+      let apiMessages := buildWritingActionMessages state action
+
+      state := { state with
+        isStreaming := true
+        streamBuffer := ""
+        cancelStreaming := false
+        pendingAIWritingAction := none
+      }
+
+      -- Start streaming request
+      let result ← AI.startStreamingCompletionSync config apiMessages
+      match result with
+      | .ok newSession =>
+        session := some newSession
+        state := state.setStatus s!"AI: {actionName}..."
+      | .error msg =>
+        state := { state with isStreaming := false, streamBuffer := "", insertAIResponseIntoEditor := false }
+        state := state.setError s!"AI Error: {msg}"
+
   -- Poll active streaming session
   if let some activeSession := session then
     -- Check for cancellation
@@ -224,8 +273,15 @@ partial def runLoop (app : App AppState) (drawFn : Frame → AppState → Frame)
           let assistantMsg ← ChatMessage.create "assistant" content
           state := state.addChatMessage assistantMsg
           session := none
-          state := { state with isStreaming := false, streamBuffer := "" }
-          state := state.clearStatus
+
+          -- Insert into editor if this was a writing action that should insert
+          if state.insertAIResponseIntoEditor then
+            state := state.handleAIWritingResponse content
+            state := state.setStatus "AI content added to editor"
+          else
+            state := state.clearStatus
+
+          state := { state with isStreaming := false, streamBuffer := "", insertAIResponseIntoEditor := false }
 
   -- Save session state
   sessionRef.set session

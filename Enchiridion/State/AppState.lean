@@ -11,6 +11,45 @@ import Enchiridion.State.Focus
 
 namespace Enchiridion
 
+/-- AI writing action types -/
+inductive AIWritingAction where
+  | continue_    -- Continue writing from cursor (underscore to avoid keyword)
+  | rewrite     -- Rewrite the current scene content
+  | brainstorm  -- Generate ideas for what happens next
+  | dialogue    -- Add dialogue
+  | description -- Add a description
+  deriving Repr, BEq, Inhabited
+
+namespace AIWritingAction
+
+def toString : AIWritingAction → String
+  | .continue_ => "Continue"
+  | .rewrite => "Rewrite"
+  | .brainstorm => "Brainstorm"
+  | .dialogue => "Dialogue"
+  | .description => "Description"
+
+instance : ToString AIWritingAction where
+  toString := AIWritingAction.toString
+
+/-- Get the prompt instruction for each action -/
+def instruction : AIWritingAction → String
+  | .continue_ => "Continue the story from where it left off, maintaining the same style and tone. Write 2-3 paragraphs."
+  | .rewrite => "Rewrite the following scene content, improving the prose while keeping the same meaning and events. Return only the rewritten text."
+  | .brainstorm => "Suggest 3-5 creative ideas for what could happen next in this scene. Be specific and consider the established characters and plot."
+  | .dialogue => "Write a natural dialogue exchange for this scene. Include dialogue tags and brief action beats. Match the characters' voices."
+  | .description => "Write a vivid sensory description for this scene. Engage sight, sound, smell, touch. Set the mood and atmosphere."
+
+/-- Whether the result should be inserted into the editor -/
+def shouldInsertIntoEditor : AIWritingAction → Bool
+  | .continue_ => true
+  | .rewrite => true
+  | .dialogue => true
+  | .description => true
+  | .brainstorm => false  -- Ideas stay in chat
+
+end AIWritingAction
+
 /-- Chat message for AI conversation -/
 structure ChatMessage where
   id : EntityId
@@ -71,6 +110,10 @@ structure AppState where
   -- AI configuration
   openRouterApiKey : String := ""
   selectedModel : String := "anthropic/claude-3.5-sonnet"
+
+  -- AI writing actions
+  pendingAIWritingAction : Option AIWritingAction := none
+  insertAIResponseIntoEditor : Bool := false  -- When true, completed AI response goes into editor
 
   -- Status
   statusMessage : Option String := none
@@ -396,6 +439,91 @@ def deleteSelectedWorldNote (state : AppState) : AppState :=
     { state with
         project := project
         selectedNoteIdx := newIdx }
+  else
+    state
+
+/-- Request an AI writing action -/
+def requestAIWritingAction (state : AppState) (action : AIWritingAction) : AppState :=
+  { state with
+      pendingAIWritingAction := some action
+      insertAIResponseIntoEditor := action.shouldInsertIntoEditor }
+
+/-- Get the prompt message for an AI writing action -/
+def getAIWritingActionMessage (state : AppState) (action : AIWritingAction) : String :=
+  action.instruction
+
+/-- Clear the pending AI writing action -/
+def clearAIWritingAction (state : AppState) : AppState :=
+  { state with pendingAIWritingAction := none }
+
+/-- Insert text at the current cursor position in the editor -/
+def insertTextAtCursor (state : AppState) (text : String) : AppState :=
+  let textArea := state.editorTextArea
+  -- Insert at cursor position by manipulating lines
+  let line := textArea.lines.getD textArea.cursorRow ""
+  let before := line.take textArea.cursorCol
+  let after := line.drop textArea.cursorCol
+  -- Split the text into lines
+  let newLines := text.splitOn "\n"
+  match newLines with
+  | [] => state
+  | [single] =>
+    -- Single line: insert inline
+    let newLine := before ++ single ++ after
+    let lines := textArea.lines.set! textArea.cursorRow newLine
+    let newCursorCol := textArea.cursorCol + single.length
+    { state with editorTextArea := { textArea with lines := lines, cursorCol := newCursorCol } }
+  | first :: rest =>
+    -- Multi-line: more complex insertion
+    let firstLine := before ++ first
+    let lastPart := rest.getLast?.getD ""
+    let lastLine := lastPart ++ after
+    let middleLines := rest.dropLast
+    let beforeLines := textArea.lines.extract 0 textArea.cursorRow
+    let afterLines := textArea.lines.extract (textArea.cursorRow + 1) textArea.lines.size
+    let newLines := beforeLines.push firstLine
+      |>.append middleLines.toArray
+      |>.push lastLine
+      |>.append afterLines
+    let newCursorRow := textArea.cursorRow + rest.length
+    let newCursorCol := lastPart.length
+    { state with editorTextArea := { textArea with
+        lines := newLines
+        cursorRow := newCursorRow
+        cursorCol := newCursorCol } }
+
+/-- Append text to the end of the editor content -/
+def appendTextToEditor (state : AppState) (text : String) : AppState :=
+  let textArea := state.editorTextArea
+  let currentText := textArea.text
+  -- Add a separator if the current text doesn't end with newlines
+  let separator := if currentText.isEmpty then ""
+    else if currentText.endsWith "\n\n" then ""
+    else if currentText.endsWith "\n" then "\n"
+    else "\n\n"
+  let newText := currentText ++ separator ++ text
+  let newTextArea := Terminus.TextArea.fromString newText
+  -- Move cursor to end
+  let lastRow := newTextArea.lines.size - 1
+  let lastCol := (newTextArea.lines.getD lastRow "").length
+  { state with
+      editorTextArea := { newTextArea with cursorRow := lastRow, cursorCol := lastCol }
+      project := state.project.markDirty }
+
+/-- Replace the entire editor content -/
+def replaceEditorContent (state : AppState) (text : String) : AppState :=
+  let newTextArea := Terminus.TextArea.fromString text
+  { state with
+      editorTextArea := newTextArea
+      project := state.project.markDirty }
+
+/-- Handle completed AI response - insert into editor if appropriate -/
+def handleAIWritingResponse (state : AppState) (response : String) : AppState :=
+  if state.insertAIResponseIntoEditor then
+    match state.pendingAIWritingAction with
+    | some .rewrite => state.replaceEditorContent response
+    | some _ => state.appendTextToEditor response
+    | none => state
   else
     state
 

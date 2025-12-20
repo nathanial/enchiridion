@@ -256,6 +256,37 @@ def update (state : AppState) (keyEvent : Option KeyEvent) : AppState × Bool :=
       else
         (state, false)
 
+    -- AI Writing Actions (only when in editor and not already streaming)
+    -- Ctrl+Enter: Continue writing
+    else if key.code == .enter && key.modifiers.ctrl && state.focus == .editor && !state.isStreaming then
+      let state := state.requestAIWritingAction .continue_
+      let state := state.setStatus "AI: Continuing story..."
+      (state, false)
+
+    -- Ctrl+R: Rewrite current content
+    else if key.code == .char 'r' && key.modifiers.ctrl && state.focus == .editor && !state.isStreaming then
+      let state := state.requestAIWritingAction .rewrite
+      let state := state.setStatus "AI: Rewriting scene..."
+      (state, false)
+
+    -- Ctrl+B: Brainstorm ideas
+    else if key.code == .char 'b' && key.modifiers.ctrl && state.focus == .editor && !state.isStreaming then
+      let state := state.requestAIWritingAction .brainstorm
+      let state := state.setStatus "AI: Brainstorming ideas..."
+      (state, false)
+
+    -- Ctrl+D: Add dialogue
+    else if key.code == .char 'd' && key.modifiers.ctrl && state.focus == .editor && !state.isStreaming then
+      let state := state.requestAIWritingAction .dialogue
+      let state := state.setStatus "AI: Writing dialogue..."
+      (state, false)
+
+    -- Ctrl+G: Add description
+    else if key.code == .char 'g' && key.modifiers.ctrl && state.focus == .editor && !state.isStreaming then
+      let state := state.requestAIWritingAction .description
+      let state := state.setStatus "AI: Writing description..."
+      (state, false)
+
     -- Panel-specific handlers
     else
       let state := match state.focus with

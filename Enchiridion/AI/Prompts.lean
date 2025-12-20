@@ -7,8 +7,11 @@ import Enchiridion.Model.Novel
 import Enchiridion.Model.Character
 import Enchiridion.Model.WorldNote
 import Enchiridion.Model.Project
+import Enchiridion.State.AppState
 
 namespace Enchiridion.AI
+
+open Enchiridion
 
 /-- Base system prompt for novel writing assistance -/
 def systemPrompt : String :=
@@ -77,7 +80,7 @@ def buildSceneContext (chapter : Chapter) (scene : Scene) : String :=
   ]
   "\n".intercalate (parts.filter (·.length > 0)).toList
 
-/-- Prompt types for different writing actions -/
+/-- Prompt types for different writing actions (legacy, use AIWritingAction instead) -/
 inductive PromptType where
   | continue     -- Continue writing from current position
   | rewrite      -- Rewrite selected text
@@ -134,12 +137,42 @@ def buildPrompt (promptType : PromptType) (project : Project) (currentContent : 
   ]
   "\n\n".intercalate (parts.filter (·.length > 0)).toList
 
+/-- Build a prompt for an AI writing action -/
+def buildWritingActionPrompt (action : AIWritingAction) (project : Project) (currentContent : String)
+    (chapter : Option Chapter) (scene : Option Scene) : String :=
+  let projectCtx := buildProjectContext project
+  let sceneCtx := match chapter, scene with
+    | some ch, some sc => buildSceneContext ch sc
+    | _, _ => ""
+
+  let contentSection := if currentContent.isEmpty then ""
+    else s!"Current scene content:\n---\n{currentContent}\n---"
+
+  let instruction := action.instruction
+
+  let parts := #[
+    projectCtx,
+    sceneCtx,
+    contentSection,
+    instruction
+  ]
+  "\n\n".intercalate (parts.filter (·.length > 0)).toList
+
 /-- Quick prompts for common actions -/
 def quickPrompts : Array (String × PromptType × String) := #[
   ("Continue", .continue, "Continue writing from here."),
   ("Add Dialogue", .dialogue, "Add a dialogue exchange between the characters."),
   ("Describe Setting", .description, "Describe the current setting in more detail."),
   ("What If?", .brainstorm, "What interesting things could happen next?")
+]
+
+/-- Available AI writing actions with their keyboard shortcuts -/
+def writingActionShortcuts : Array (AIWritingAction × String) := #[
+  (.continue_, "Ctrl+Enter"),
+  (.rewrite, "Ctrl+R"),
+  (.brainstorm, "Ctrl+B"),
+  (.dialogue, "Ctrl+D"),
+  (.description, "Ctrl+G")
 ]
 
 end Enchiridion.AI
