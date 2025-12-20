@@ -101,8 +101,8 @@ def updateChat (state : AppState) (key : KeyEvent) : AppState :=
       let input := state.chatInput.handleKey key
       { state with chatInput := input }
 
-/-- Handle notes panel input -/
-def updateNotes (state : AppState) (key : KeyEvent) : AppState :=
+/-- Handle notes panel input in list mode -/
+def updateNotesListMode (state : AppState) (key : KeyEvent) : AppState :=
   match key.code with
   | .left =>
     if state.notesTab > 0 then
@@ -140,7 +140,60 @@ def updateNotes (state : AppState) (key : KeyEvent) : AppState :=
       else
         state
 
+  | .enter =>
+    -- Enter edit mode for selected item
+    if state.notesTab == 0 then
+      state.editSelectedCharacter
+    else
+      state.editSelectedWorldNote
+
+  | .char 'n' =>
+    -- Create new character or note
+    if state.notesTab == 0 then
+      state.requestNewCharacter
+    else
+      state.requestNewWorldNote
+
+  | .delete =>
+    -- Delete selected item
+    if state.notesTab == 0 then
+      state.deleteSelectedCharacter
+    else
+      state.deleteSelectedWorldNote
+
   | _ => state
+
+/-- Handle notes panel input in edit mode -/
+def updateNotesEditMode (state : AppState) (key : KeyEvent) : AppState :=
+  match key.code with
+  | .escape =>
+    -- Cancel editing, discard changes
+    { state with notesEditMode := false }
+
+  | .tab =>
+    -- Switch between name and content fields
+    if state.notesEditField == 0 then
+      { state with notesEditField := 1 }
+    else
+      { state with notesEditField := 0 }
+
+  | _ =>
+    -- Pass key to the focused input
+    if state.notesEditField == 0 then
+      -- Name input
+      let input := state.notesNameInput.handleKey key
+      { state with notesNameInput := input }
+    else
+      -- Content area
+      let area := state.notesContentArea.handleKey key
+      { state with notesContentArea := area }
+
+/-- Handle notes panel input -/
+def updateNotes (state : AppState) (key : KeyEvent) : AppState :=
+  if state.notesEditMode then
+    updateNotesEditMode state key
+  else
+    updateNotesListMode state key
 
 /-- Main update function -/
 def update (state : AppState) (keyEvent : Option KeyEvent) : AppState × Bool :=
@@ -166,19 +219,28 @@ def update (state : AppState) (keyEvent : Option KeyEvent) : AppState × Bool :=
       let state := state.clearStatus
       ({ state with quitConfirmPending := false }, false)
 
-    -- Tab to cycle focus
-    else if key.code == .tab && !key.modifiers.shift then
+    -- Tab to cycle focus (but not in notes edit mode where Tab switches fields)
+    else if key.code == .tab && !key.modifiers.shift && !(state.focus == .notes && state.notesEditMode) then
       (state.nextFocus, false)
 
     -- Shift+Tab to cycle focus backwards
-    else if key.code == .tab && key.modifiers.shift then
+    else if key.code == .tab && key.modifiers.shift && !(state.focus == .notes && state.notesEditMode) then
       (state.prevFocus, false)
 
     -- Ctrl+S to save
     else if key.code == .char 's' && key.modifiers.ctrl then
-      -- Save current scene content first, then request save
-      let state := state.saveCurrentScene
-      (state.requestSave, false)
+      -- In notes edit mode, save the current note/character
+      if state.focus == .notes && state.notesEditMode then
+        let state := if state.notesTab == 0 then
+          state.saveCharacterEdits
+        else
+          state.saveWorldNoteEdits
+        let state := state.setStatus "Saved changes"
+        (state, false)
+      else
+        -- Save current scene content first, then request save
+        let state := state.saveCurrentScene
+        (state.requestSave, false)
 
     -- Ctrl+N for new chapter (when in navigation panel)
     else if key.code == .char 'n' && key.modifiers.ctrl && !key.modifiers.shift then

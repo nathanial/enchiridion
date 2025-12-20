@@ -126,15 +126,8 @@ def drawChat (frame : Frame) (state : AppState) (area : Rect) (focused : Bool) :
     |>.withBlock inputBlock
   frame.render input inputArea
 
-/-- Draw the notes panel -/
-def drawNotes (frame : Frame) (state : AppState) (area : Rect) (focused : Bool) : Frame :=
-  let block := Block.rounded
-    |>.withTitle "Notes"
-    |>.withBorderStyle (borderStyle focused)
-
-  let frame := frame.render block area
-  let inner := block.innerArea area
-
+/-- Draw notes panel in list mode -/
+def drawNotesListMode (frame : Frame) (state : AppState) (inner : Rect) (focused : Bool) : Frame :=
   -- Draw tabs for Characters / World
   let charTab := if state.notesTab == 0 then "[Characters]" else " Characters "
   let worldTab := if state.notesTab == 1 then "[World]" else " World "
@@ -159,7 +152,7 @@ def drawNotes (frame : Frame) (state : AppState) (area : Rect) (focused : Bool) 
     state.project.worldNotes.map (·.displayTitle)
 
   if items.isEmpty then
-    let emptyMsg := if state.notesTab == 0 then "No characters yet" else "No notes yet"
+    let emptyMsg := if state.notesTab == 0 then "No characters (n=new)" else "No notes (n=new)"
     let para := Paragraph.fromString emptyMsg |>.withStyle (Style.fgColor Color.gray)
     frame.render para listArea
   else
@@ -177,6 +170,52 @@ def drawNotes (frame : Frame) (state : AppState) (area : Rect) (focused : Bool) 
       result
     let para := Paragraph.new lines
     frame.render para listArea
+
+/-- Draw notes panel in edit mode -/
+def drawNotesEditMode (frame : Frame) (state : AppState) (inner : Rect) (focused : Bool) : Frame :=
+  let typeLabel := if state.notesTab == 0 then "Character" else "World Note"
+
+  -- Split into sections: header, name input, content area
+  let sections := vsplit inner [.fixed 1, .fixed 3, .fill]
+  let headerArea := sections[0]!
+  let nameArea := sections[1]!
+  let contentArea := sections[2]!
+
+  -- Draw header with instructions
+  let headerText := s!"{typeLabel} - Tab: switch field | Ctrl+S: save | Esc: cancel"
+  let headerPara := Paragraph.fromString headerText |>.withStyle (Style.fgColor Color.cyan)
+  let frame := frame.render headerPara headerArea
+
+  -- Draw name input
+  let nameBlock := Block.single.withTitle "Name"
+  let nameInput := { state.notesNameInput with focused := focused && state.notesEditField == 0 }
+    |>.withBlock nameBlock
+  let frame := frame.render nameInput nameArea
+
+  -- Draw content area
+  let contentBlock := Block.single.withTitle "Description"
+  let contentTextArea := { state.notesContentArea with focused := focused && state.notesEditField == 1 }
+    |>.withBlock contentBlock
+  frame.render contentTextArea contentArea
+
+/-- Draw the notes panel -/
+def drawNotes (frame : Frame) (state : AppState) (area : Rect) (focused : Bool) : Frame :=
+  let title := if state.notesEditMode then
+    if state.notesTab == 0 then "Edit Character" else "Edit Note"
+  else
+    "Notes"
+
+  let block := Block.rounded
+    |>.withTitle title
+    |>.withBorderStyle (borderStyle focused)
+
+  let frame := frame.render block area
+  let inner := block.innerArea area
+
+  if state.notesEditMode then
+    drawNotesEditMode frame state inner focused
+  else
+    drawNotesListMode frame state inner focused
 
 /-- Draw the status bar -/
 def drawStatus (frame : Frame) (state : AppState) (area : Rect) : Frame :=

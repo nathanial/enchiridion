@@ -6,6 +6,8 @@
 import Terminus
 import Enchiridion.State.AppState
 import Enchiridion.Model.Novel
+import Enchiridion.Model.Character
+import Enchiridion.Model.WorldNote
 import Enchiridion.Storage.FileIO
 import Enchiridion.AI.OpenRouter
 import Enchiridion.AI.Prompts
@@ -101,10 +103,31 @@ def processPendingActions (state : AppState) : IO AppState := do
     | .error msg =>
       state := state.setError msg
 
+  -- Handle new character request
+  if state.pendingNewCharacter then
+    let charNum := state.project.characters.size + 1
+    let char ← Character.create s!"Character {charNum}"
+    state := state.addNewCharacter char
+    state := state.editSelectedCharacter  -- Enter edit mode for the new character
+    state := state.setStatus s!"Created new character"
+
+  -- Handle new world note request
+  if state.pendingNewWorldNote then
+    let noteNum := state.project.worldNotes.size + 1
+    let note ← WorldNote.create s!"Note {noteNum}"
+    state := state.addNewWorldNote note
+    state := state.editSelectedWorldNote  -- Enter edit mode for the new note
+    state := state.setStatus s!"Created new note"
+
   -- Note: AI message handling is done in the main loop with streaming support
 
   -- Clear the pending flags (except pendingAIMessage which is handled separately)
-  state := { state with pendingNewChapter := false, pendingNewScene := false, pendingSave := false }
+  state := { state with
+    pendingNewChapter := false
+    pendingNewScene := false
+    pendingSave := false
+    pendingNewCharacter := false
+    pendingNewWorldNote := false }
   return state
 
 /-- Custom update wrapper that handles IO actions -/

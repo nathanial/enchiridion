@@ -63,6 +63,10 @@ structure AppState where
   notesTab : Nat := 0  -- 0 = Characters, 1 = World
   selectedCharacterIdx : Nat := 0
   selectedNoteIdx : Nat := 0
+  notesEditMode : Bool := false  -- True when editing a character/note
+  notesEditField : Nat := 0  -- 0 = name/title, 1 = description/content
+  notesNameInput : Terminus.TextInput := Terminus.TextInput.new
+  notesContentArea : Terminus.TextArea := Terminus.TextArea.new
 
   -- AI configuration
   openRouterApiKey : String := ""
@@ -77,6 +81,8 @@ structure AppState where
   pendingNewScene : Bool := false
   pendingSave : Bool := false
   pendingAIMessage : Option String := none  -- User message to send to AI
+  pendingNewCharacter : Bool := false
+  pendingNewWorldNote : Bool := false
 
   -- Quit confirmation (for unsaved changes warning)
   quitConfirmPending : Bool := false
@@ -272,13 +278,126 @@ def requestSave (state : AppState) : AppState :=
 def requestAIMessage (state : AppState) (message : String) : AppState :=
   { state with pendingAIMessage := some message }
 
+/-- Request new character (will be executed in IO context) -/
+def requestNewCharacter (state : AppState) : AppState :=
+  { state with pendingNewCharacter := true }
+
+/-- Request new world note (will be executed in IO context) -/
+def requestNewWorldNote (state : AppState) : AppState :=
+  { state with pendingNewWorldNote := true }
+
 /-- Clear pending actions -/
 def clearPendingActions (state : AppState) : AppState :=
-  { state with pendingNewChapter := false, pendingNewScene := false, pendingSave := false, pendingAIMessage := none }
+  { state with
+      pendingNewChapter := false
+      pendingNewScene := false
+      pendingSave := false
+      pendingAIMessage := none
+      pendingNewCharacter := false
+      pendingNewWorldNote := false }
 
 /-- Check if there are any pending actions -/
 def hasPendingActions (state : AppState) : Bool :=
-  state.pendingNewChapter || state.pendingNewScene || state.pendingSave || state.pendingAIMessage.isSome
+  state.pendingNewChapter || state.pendingNewScene || state.pendingSave ||
+  state.pendingAIMessage.isSome || state.pendingNewCharacter || state.pendingNewWorldNote
+
+/-- Enter edit mode for the selected character -/
+def editSelectedCharacter (state : AppState) : AppState :=
+  if state.selectedCharacterIdx < state.project.characters.size then
+    let char := state.project.characters[state.selectedCharacterIdx]!
+    let nameInput := Terminus.TextInput.new.withValue char.name
+    let contentArea := Terminus.TextArea.fromString char.description
+    { state with
+        notesEditMode := true
+        notesEditField := 0
+        notesNameInput := nameInput
+        notesContentArea := contentArea }
+  else
+    state
+
+/-- Enter edit mode for the selected world note -/
+def editSelectedWorldNote (state : AppState) : AppState :=
+  if state.selectedNoteIdx < state.project.worldNotes.size then
+    let note := state.project.worldNotes[state.selectedNoteIdx]!
+    let nameInput := Terminus.TextInput.new.withValue note.title
+    let contentArea := Terminus.TextArea.fromString note.content
+    { state with
+        notesEditMode := true
+        notesEditField := 0
+        notesNameInput := nameInput
+        notesContentArea := contentArea }
+  else
+    state
+
+/-- Save edits to the selected character -/
+def saveCharacterEdits (state : AppState) : AppState :=
+  if state.selectedCharacterIdx < state.project.characters.size then
+    let chars := state.project.characters.modify state.selectedCharacterIdx fun char =>
+      { char with
+          name := state.notesNameInput.value
+          description := state.notesContentArea.text }
+    let project := { state.project with characters := chars, isDirty := true }
+    { state with
+        project := project
+        notesEditMode := false }
+  else
+    { state with notesEditMode := false }
+
+/-- Save edits to the selected world note -/
+def saveWorldNoteEdits (state : AppState) : AppState :=
+  if state.selectedNoteIdx < state.project.worldNotes.size then
+    let notes := state.project.worldNotes.modify state.selectedNoteIdx fun note =>
+      { note with
+          title := state.notesNameInput.value
+          content := state.notesContentArea.text }
+    let project := { state.project with worldNotes := notes, isDirty := true }
+    { state with
+        project := project
+        notesEditMode := false }
+  else
+    { state with notesEditMode := false }
+
+/-- Add a new character to the project -/
+def addNewCharacter (state : AppState) (char : Character) : AppState :=
+  let project := { state.project with
+    characters := state.project.characters.push char
+    isDirty := true }
+  { state with
+      project := project
+      selectedCharacterIdx := project.characters.size - 1 }
+
+/-- Add a new world note to the project -/
+def addNewWorldNote (state : AppState) (note : WorldNote) : AppState :=
+  let project := { state.project with
+    worldNotes := state.project.worldNotes.push note
+    isDirty := true }
+  { state with
+      project := project
+      selectedNoteIdx := project.worldNotes.size - 1 }
+
+/-- Delete the selected character -/
+def deleteSelectedCharacter (state : AppState) : AppState :=
+  if h : state.selectedCharacterIdx < state.project.characters.size then
+    let chars := state.project.characters.eraseIdx state.selectedCharacterIdx
+    let project := { state.project with characters := chars, isDirty := true }
+    let newIdx := if state.selectedCharacterIdx > 0 then state.selectedCharacterIdx - 1 else 0
+    { state with
+        project := project
+        selectedCharacterIdx := newIdx }
+  else
+    state
+
+/-- Delete the selected world note -/
+def deleteSelectedWorldNote (state : AppState) : AppState :=
+  if h : state.selectedNoteIdx < state.project.worldNotes.size then
+    let notes := state.project.worldNotes.eraseIdx state.selectedNoteIdx
+    let project := { state.project with worldNotes := notes, isDirty := true }
+    let newIdx := if state.selectedNoteIdx > 0 then state.selectedNoteIdx - 1 else 0
+    { state with
+        project := project
+        selectedNoteIdx := newIdx }
+  else
+    state
 
 end AppState
 
