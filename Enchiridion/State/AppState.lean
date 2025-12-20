@@ -57,6 +57,7 @@ structure AppState where
   chatInput : Terminus.TextInput := Terminus.TextInput.new
   isStreaming : Bool := false
   streamBuffer : String := ""
+  cancelStreaming : Bool := false  -- Set by Escape to cancel streaming
 
   -- Notes panel state
   notesTab : Nat := 0  -- 0 = Characters, 1 = World

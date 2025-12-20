@@ -9,6 +9,7 @@ import Enchiridion.Model.Novel
 import Enchiridion.Storage.FileIO
 import Enchiridion.AI.OpenRouter
 import Enchiridion.AI.Prompts
+import Enchiridion.AI.Streaming
 import Enchiridion.UI.Draw
 import Enchiridion.UI.Update
 
@@ -100,56 +101,10 @@ def processPendingActions (state : AppState) : IO AppState := do
     | .error msg =>
       state := state.setError msg
 
-  -- Handle AI message request
-  if let some userMessage := state.pendingAIMessage then
-    -- Check if API key is configured
-    if state.openRouterApiKey.isEmpty then
-      state := state.setError "OpenRouter API key not configured. Set OPENROUTER_API_KEY env var."
-    else
-      -- Add user message to chat
-      let userMsg ← ChatMessage.create "user" userMessage
-      state := state.addChatMessage userMsg
+  -- Note: AI message handling is done in the main loop with streaming support
 
-      -- Build context and send to AI
-      let config : AI.OpenRouterConfig := {
-        apiKey := state.openRouterApiKey
-        model := state.selectedModel
-      }
-
-      -- Get current scene content for context
-      let sceneContent := state.editorTextArea.text
-      let currentChapter := match state.currentChapterId with
-        | some cid => state.project.novel.getChapter cid
-        | none => none
-      let currentScene := match state.currentChapterId, state.currentSceneId with
-        | some cid, some sid => state.project.novel.getScene cid sid
-        | _, _ => none
-
-      -- Build the full prompt with context
-      let fullPrompt := AI.buildPrompt .custom state.project sceneContent currentChapter currentScene userMessage
-
-      -- Build messages for API
-      let systemMsg : AI.APIMessage := { role := .system, content := AI.systemPrompt }
-      let userApiMsg : AI.APIMessage := { role := .user, content := fullPrompt }
-      let apiMessages := #[systemMsg, userApiMsg]
-
-      -- Send request
-      state := { state with isStreaming := true }
-      state := state.setStatus "Thinking..."
-
-      let result ← AI.sendChatCompletion config apiMessages
-      match result with
-      | .ok content =>
-        let assistantMsg ← ChatMessage.create "assistant" content
-        state := state.addChatMessage assistantMsg
-        state := { state with isStreaming := false }
-        state := state.clearStatus
-      | .error errMsg =>
-        state := { state with isStreaming := false }
-        state := state.setError s!"AI Error: {errMsg}"
-
-  -- Clear the pending flags
-  state := state.clearPendingActions
+  -- Clear the pending flags (except pendingAIMessage which is handled separately)
+  state := { state with pendingNewChapter := false, pendingNewScene := false, pendingSave := false }
   return state
 
 /-- Custom update wrapper that handles IO actions -/
@@ -162,9 +117,95 @@ def updateWithIO (state : AppState) (keyEvent : Option KeyEvent) : IO (AppState 
 
   return (state, shouldQuit)
 
-/-- Custom app loop with IO action support -/
-partial def runLoop (app : App AppState) (drawFn : Frame → AppState → Frame) : IO Unit := do
+/-- Build API messages for a chat request -/
+def buildAPIMessages (state : AppState) (userMessage : String) : Array AI.APIMessage :=
+  let sceneContent := state.editorTextArea.text
+  let currentChapter := match state.currentChapterId with
+    | some cid => state.project.novel.getChapter cid
+    | none => none
+  let currentScene := match state.currentChapterId, state.currentSceneId with
+    | some cid, some sid => state.project.novel.getScene cid sid
+    | _, _ => none
+  let fullPrompt := AI.buildPrompt .custom state.project sceneContent currentChapter currentScene userMessage
+  let systemMsg : AI.APIMessage := { role := .system, content := AI.systemPrompt }
+  let userApiMsg : AI.APIMessage := { role := .user, content := fullPrompt }
+  #[systemMsg, userApiMsg]
+
+/-- Custom app loop with IO action support and streaming -/
+partial def runLoop (app : App AppState) (drawFn : Frame → AppState → Frame)
+    (sessionRef : IO.Ref (Option AI.StreamingSession)) : IO Unit := do
   if app.shouldQuit then return
+
+  let mut state := app.state
+  let mut session ← sessionRef.get
+
+  -- Handle starting a new streaming request
+  if let some userMessage := state.pendingAIMessage then
+    if state.openRouterApiKey.isEmpty then
+      state := state.setError "OpenRouter API key not configured. Set OPENROUTER_API_KEY env var."
+      state := { state with pendingAIMessage := none }
+    else
+      -- Add user message to chat
+      let userMsg ← ChatMessage.create "user" userMessage
+      state := state.addChatMessage userMsg
+
+      -- Build config and messages
+      let config : AI.OpenRouterConfig := {
+        apiKey := state.openRouterApiKey
+        model := state.selectedModel
+      }
+      let apiMessages := buildAPIMessages state userMessage
+
+      state := { state with
+        isStreaming := true
+        streamBuffer := ""
+        cancelStreaming := false
+        pendingAIMessage := none
+      }
+      state := state.setStatus "Connecting..."
+
+      -- Start streaming request (blocks until headers received)
+      let result ← AI.startStreamingCompletionSync config apiMessages
+      match result with
+      | .ok newSession =>
+        session := some newSession
+        state := state.setStatus "Streaming..."
+      | .error msg =>
+        state := { state with isStreaming := false, streamBuffer := "" }
+        state := state.setError s!"AI Error: {msg}"
+
+  -- Poll active streaming session
+  if let some activeSession := session then
+    -- Check for cancellation
+    if state.cancelStreaming then
+      -- Cancel streaming
+      let content ← activeSession.getContent
+      if !content.isEmpty then
+        let assistantMsg ← ChatMessage.create "assistant" (content ++ "\n\n[Cancelled]")
+        state := state.addChatMessage assistantMsg
+      session := none
+      state := { state with isStreaming := false, streamBuffer := "", cancelStreaming := false }
+      state := state.clearStatus
+    else
+      -- Poll for next chunk
+      let chunk? ← activeSession.pollChunk
+      match chunk? with
+      | some chunk =>
+        -- Update stream buffer with new content
+        state := { state with streamBuffer := state.streamBuffer ++ chunk }
+      | none =>
+        -- Check if done
+        let done ← activeSession.isDone
+        if done then
+          let content ← activeSession.getContent
+          let assistantMsg ← ChatMessage.create "assistant" content
+          state := state.addChatMessage assistantMsg
+          session := none
+          state := { state with isStreaming := false, streamBuffer := "" }
+          state := state.clearStatus
+
+  -- Save session state
+  sessionRef.set session
 
   -- Poll for input
   let event ← Events.poll
@@ -174,11 +215,12 @@ partial def runLoop (app : App AppState) (drawFn : Frame → AppState → Frame)
     | .key k => some k
     | _ => none
 
-  -- Run update with IO support
-  let (newState, shouldQuit) ← updateWithIO app.state keyEvent
+  -- Run update
+  let (newState, shouldQuit) := update state keyEvent
+  state ← processPendingActions newState
 
   -- Update app state
-  let app := { app with state := newState, shouldQuit := app.shouldQuit || shouldQuit }
+  let app := { app with state := state, shouldQuit := app.shouldQuit || shouldQuit }
 
   if app.shouldQuit then return
 
@@ -192,8 +234,13 @@ partial def runLoop (app : App AppState) (drawFn : Frame → AppState → Frame)
 
   let app := { app with terminal := term }
 
-  IO.sleep 16  -- ~60 FPS
-  runLoop app drawFn
+  -- Shorter sleep when streaming for responsiveness
+  if session.isSome then
+    IO.sleep 8  -- ~120 FPS during streaming
+  else
+    IO.sleep 16  -- ~60 FPS normally
+
+  runLoop app drawFn sessionRef
 
 /-- Run the application with custom loop -/
 def runAppWithIO (initialState : AppState) (drawFn : Frame → AppState → Frame) : IO Unit := do
@@ -203,8 +250,10 @@ def runAppWithIO (initialState : AppState) (drawFn : Frame → AppState → Fram
     -- Initial draw
     let term ← app.terminal.draw
     let app := { app with terminal := term }
+    -- Create session ref
+    let sessionRef ← IO.mkRef none
     -- Run main loop
-    runLoop app drawFn
+    runLoop app drawFn sessionRef
   finally
     Terminal.teardown
 

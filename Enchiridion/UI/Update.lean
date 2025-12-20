@@ -84,7 +84,7 @@ def updateChat (state : AppState) (key : KeyEvent) : AppState :=
   if state.isStreaming then
     -- During streaming, only allow Escape to cancel
     match key.code with
-    | .escape => { state with isStreaming := false, streamBuffer := "" }
+    | .escape => { state with cancelStreaming := true }
     | _ => state
   else
     match key.code with
