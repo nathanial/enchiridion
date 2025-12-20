@@ -214,10 +214,21 @@ def update (state : AppState) (keyEvent : Option KeyEvent) : AppState × Bool :=
         -- Either no unsaved changes, or confirmation already shown
         (state, true)
 
-    -- Escape clears quit confirmation
+    -- Escape clears quit confirmation or closes help
     else if key.code == .escape && state.quitConfirmPending then
       let state := state.clearStatus
       ({ state with quitConfirmPending := false }, false)
+
+    else if key.code == .escape && state.mode == .help then
+      (state.hideHelp, false)
+
+    -- ? to show help
+    else if key.code == .char '?' then
+      (state.toggleHelp, false)
+
+    -- F1 also shows help
+    else if key.code == .f 1 then
+      (state.toggleHelp, false)
 
     -- Tab to cycle focus (but not in notes edit mode where Tab switches fields)
     else if key.code == .tab && !key.modifiers.shift && !(state.focus == .notes && state.notesEditMode) then
@@ -226,6 +237,12 @@ def update (state : AppState) (keyEvent : Option KeyEvent) : AppState × Bool :=
     -- Shift+Tab to cycle focus backwards
     else if key.code == .tab && key.modifiers.shift && !(state.focus == .notes && state.notesEditMode) then
       (state.prevFocus, false)
+
+    -- Ctrl+E to export to markdown
+    else if key.code == .char 'e' && key.modifiers.ctrl then
+      -- Save current scene first, then export
+      let state := state.saveCurrentScene
+      (state.requestExport, false)
 
     -- Ctrl+S to save
     else if key.code == .char 's' && key.modifiers.ctrl then

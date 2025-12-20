@@ -49,6 +49,7 @@ inductive AppMode where
   | loading      -- Load dialog open
   | command      -- Command palette open
   | confirm      -- Confirmation dialog
+  | help         -- Help overlay showing shortcuts
   deriving Repr, BEq, Inhabited, DecidableEq
 
 namespace AppMode
@@ -60,6 +61,7 @@ def toString : AppMode → String
   | .loading => "Loading..."
   | .command => "Command"
   | .confirm => "Confirm"
+  | .help => "Help"
 
 instance : ToString AppMode where
   toString := AppMode.toString

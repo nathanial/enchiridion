@@ -4,6 +4,10 @@
 
 import Enchiridion
 
+/-- Helper to check if a substring exists in a string -/
+def containsSubstr (haystack : String) (needle : String) : Bool :=
+  (haystack.splitOn needle).length > 1
+
 def main : IO Unit := do
   IO.println "Enchiridion Tests"
   IO.println "================="
@@ -278,6 +282,179 @@ def main : IO Unit := do
     IO.println "  ✓ handleAIWritingResponse ignores brainstorm"
   else
     IO.println "  ✗ handleAIWritingResponse brainstorm should not modify editor"
+
+  -- Test Help Mode Toggle
+  IO.println "\n15. Help Mode Toggle"
+  state := state.hideHelp  -- Ensure not in help mode
+  if state.mode != .help then
+    IO.println "  ✓ Initial state is not help mode"
+  else
+    IO.println "  ✗ Should not start in help mode"
+
+  state := state.showHelp
+  if state.mode == .help then
+    IO.println "  ✓ showHelp enters help mode"
+  else
+    IO.println "  ✗ showHelp failed"
+
+  state := state.toggleHelp
+  if state.mode != .help then
+    IO.println "  ✓ toggleHelp exits help mode"
+  else
+    IO.println "  ✗ toggleHelp should exit help mode"
+
+  state := state.toggleHelp
+  if state.mode == .help then
+    IO.println "  ✓ toggleHelp enters help mode again"
+  else
+    IO.println "  ✗ toggleHelp should enter help mode"
+
+  state := state.hideHelp  -- Reset state
+
+  -- Test Word Count Stats
+  IO.println "\n16. Word Count Stats"
+  -- Create a project with known word count
+  let mut testNovel ← Enchiridion.Novel.create "Test Novel" "Test Author"
+  let mut testChapter ← Enchiridion.Chapter.create "Chapter 1"
+  let mut testScene ← Enchiridion.Scene.create "Test Scene"
+  testScene := { testScene with content := "One two three four five." }
+  testScene := testScene.updateWordCount
+  testChapter := testChapter.addScene testScene
+  testNovel := testNovel.addChapter testChapter
+
+  let testProject : Enchiridion.Project := {
+    novel := testNovel
+    characters := #[]
+    worldNotes := #[]
+  }
+  state := Enchiridion.AppState.fromProject testProject
+
+  -- getWordCountStats returns a formatted string
+  let stats := state.getWordCountStats
+  -- Check that stats string contains expected values
+  if containsSubstr stats "5 words" then
+    IO.println "  ✓ Word count stats contains word count"
+  else
+    IO.println s!"  ✗ Word count stats wrong: {stats}"
+
+  if containsSubstr stats "1 chapters" then
+    IO.println "  ✓ Word count stats contains chapter count"
+  else
+    IO.println s!"  ✗ Chapter count missing from: {stats}"
+
+  if containsSubstr stats "1 scenes" then
+    IO.println "  ✓ Word count stats contains scene count"
+  else
+    IO.println s!"  ✗ Scene count missing from: {stats}"
+
+  -- Test Export to Markdown
+  IO.println "\n17. Export to Markdown"
+  let markdown := state.exportToMarkdown
+  if containsSubstr markdown "# Test Novel" then
+    IO.println "  ✓ Markdown contains title"
+  else
+    IO.println "  ✗ Markdown missing title"
+
+  if containsSubstr markdown "## Chapter 1" then
+    IO.println "  ✓ Markdown contains chapter"
+  else
+    IO.println "  ✗ Markdown missing chapter"
+
+  if containsSubstr markdown "### Test Scene" then
+    IO.println "  ✓ Markdown contains scene"
+  else
+    IO.println "  ✗ Markdown missing scene"
+
+  if containsSubstr markdown "One two three four five." then
+    IO.println "  ✓ Markdown contains scene content"
+  else
+    IO.println "  ✗ Markdown missing scene content"
+
+  -- Test Export Request
+  IO.println "\n18. Export Request"
+  state := state.requestExport
+  if state.pendingExport then
+    IO.println "  ✓ requestExport sets pendingExport flag"
+  else
+    IO.println "  ✗ requestExport failed"
+
+  state := { state with pendingExport := false }  -- Reset
+
+  -- Test Config parsing
+  IO.println "\n19. Config Parsing"
+  let configJson := Lean.Json.mkObj [
+    ("openRouterApiKey", Lean.Json.str "test-key"),
+    ("defaultModel", Lean.Json.str "test-model"),
+    ("autoSaveEnabled", Lean.Json.bool true),
+    ("autoSaveIntervalMs", Lean.Json.num 30000)
+  ]
+  match Enchiridion.Config.fromJson? configJson with
+  | some config =>
+    if config.openRouterApiKey == "test-key" then
+      IO.println "  ✓ Config API key parsed correctly"
+    else
+      IO.println "  ✗ Config API key wrong"
+    if config.defaultModel == "test-model" then
+      IO.println "  ✓ Config model parsed correctly"
+    else
+      IO.println "  ✗ Config model wrong"
+    if config.autoSaveEnabled then
+      IO.println "  ✓ Config autoSaveEnabled parsed correctly"
+    else
+      IO.println "  ✗ Config autoSaveEnabled wrong"
+    if config.autoSaveIntervalMs == 30000 then
+      IO.println "  ✓ Config autoSaveIntervalMs parsed correctly"
+    else
+      IO.println "  ✗ Config autoSaveIntervalMs wrong"
+  | none =>
+    IO.println "  ✗ Config parsing failed"
+
+  -- Test Config to JSON round-trip
+  IO.println "\n20. Config Round-trip"
+  let sampleConfig : Enchiridion.Config := {
+    openRouterApiKey := "round-trip-key"
+    defaultModel := "round-trip-model"
+    autoSaveEnabled := false
+    autoSaveIntervalMs := 45000
+  }
+  let configJson2 := sampleConfig.toJson
+  match Enchiridion.Config.fromJson? configJson2 with
+  | some parsedConfig =>
+    if parsedConfig.openRouterApiKey == sampleConfig.openRouterApiKey &&
+       parsedConfig.defaultModel == sampleConfig.defaultModel &&
+       parsedConfig.autoSaveEnabled == sampleConfig.autoSaveEnabled &&
+       parsedConfig.autoSaveIntervalMs == sampleConfig.autoSaveIntervalMs then
+      IO.println "  ✓ Config round-trip successful"
+    else
+      IO.println "  ✗ Config round-trip data mismatch"
+  | none =>
+    IO.println "  ✗ Config round-trip parsing failed"
+
+  -- Test Error/Status Message Handling
+  IO.println "\n21. Error and Status Messages"
+  state := state.setError "Test error"
+  if state.errorMessage == some "Test error" then
+    IO.println "  ✓ setError works"
+  else
+    IO.println "  ✗ setError failed"
+
+  state := state.clearError
+  if state.errorMessage.isNone then
+    IO.println "  ✓ clearError works"
+  else
+    IO.println "  ✗ clearError failed"
+
+  state := state.setStatus "Test status"
+  if state.statusMessage == some "Test status" then
+    IO.println "  ✓ setStatus works"
+  else
+    IO.println "  ✗ setStatus failed"
+
+  state := state.clearStatus
+  if state.statusMessage.isNone then
+    IO.println "  ✓ clearStatus works"
+  else
+    IO.println "  ✗ clearStatus failed"
 
   IO.println "\n================="
   IO.println "All tests completed!"

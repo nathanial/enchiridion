@@ -258,6 +258,80 @@ def drawStatus (frame : Frame) (state : AppState) (area : Rect) : Frame :=
       let rightX := if area.width > rightInfo.length then area.x + area.width - rightInfo.length else area.x
       frame.writeString rightX area.y rightInfo bgStyle
 
+/-- Draw the help overlay -/
+def drawHelp (frame : Frame) (area : Rect) : Frame := Id.run do
+  -- Calculate centered popup area
+  let popupWidth := Nat.min 60 (area.width - 4)
+  let popupHeight := Nat.min 28 (area.height - 4)
+  let popupX := area.x + (area.width - popupWidth) / 2
+  let popupY := area.y + (area.height - popupHeight) / 2
+  let popupArea : Rect := { x := popupX, y := popupY, width := popupWidth, height := popupHeight }
+
+  -- Draw background overlay (dim the background by filling with spaces)
+  let dimStyle := Style.dim
+  let dimRow := String.ofList (List.replicate area.width ' ')
+  let mut result := frame
+  for row in [:area.height] do
+    result := result.writeString area.x (area.y + row) dimRow dimStyle
+
+  -- Draw popup border
+  let block := Block.rounded
+    |>.withTitle "Keyboard Shortcuts (? to close)"
+    |>.withBorderStyle (Style.fgColor Color.cyan)
+  result := result.render block popupArea
+  let inner := block.innerArea popupArea
+
+  -- Define shortcuts
+  let shortcuts : List (String × String) := [
+    ("General", ""),
+    ("  Tab / Shift+Tab", "Switch panels"),
+    ("  Ctrl+S", "Save project"),
+    ("  Ctrl+E", "Export to markdown"),
+    ("  Ctrl+Q", "Quit (with confirmation)"),
+    ("  ?", "Show/hide this help"),
+    ("", ""),
+    ("Navigation Panel", ""),
+    ("  Up/Down", "Navigate chapters/scenes"),
+    ("  Enter", "Load selected scene"),
+    ("  Space", "Toggle chapter collapse"),
+    ("  Ctrl+N", "New chapter"),
+    ("  Ctrl+Shift+N", "New scene"),
+    ("  Delete", "Delete chapter/scene"),
+    ("", ""),
+    ("Editor Panel (AI Writing)", ""),
+    ("  Ctrl+Enter", "Continue writing"),
+    ("  Ctrl+R", "Rewrite scene"),
+    ("  Ctrl+B", "Brainstorm ideas"),
+    ("  Ctrl+D", "Add dialogue"),
+    ("  Ctrl+G", "Add description"),
+    ("", ""),
+    ("Notes Panel", ""),
+    ("  Left/Right", "Switch tabs"),
+    ("  n", "New character/note"),
+    ("  Enter", "Edit selected"),
+    ("  Tab", "Switch fields (edit mode)"),
+    ("  Escape", "Cancel editing")
+  ]
+
+  -- Render shortcuts
+  let mut y := inner.y
+  for (key, desc) in shortcuts do
+    if y < inner.y + inner.height then
+      if desc.isEmpty then
+        -- Section header
+        let headerStyle := Style.bold.withFg Color.yellow
+        result := result.writeString inner.x y key headerStyle
+      else
+        -- Shortcut line
+        let keyStyle := Style.fgColor Color.cyan
+        let descStyle := Style.default
+        result := result.writeString inner.x y key keyStyle
+        let descX := inner.x + 22
+        result := result.writeString descX y desc descStyle
+    y := y + 1
+
+  return result
+
 /-- Main draw function -/
 def draw (frame : Frame) (state : AppState) : Frame :=
   let areas := layoutPanels frame.area
@@ -268,6 +342,12 @@ def draw (frame : Frame) (state : AppState) : Frame :=
   let frame := drawChat frame state areas.chat (state.focus == .chat)
   let frame := drawNotes frame state areas.notes (state.focus == .notes)
   let frame := drawStatus frame state areas.status
+
+  -- Draw help overlay if in help mode
+  let frame := if state.mode == .help then
+    drawHelp frame frame.area
+  else
+    frame
 
   frame
 

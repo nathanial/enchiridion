@@ -9,6 +9,7 @@ import Enchiridion.Model.Novel
 import Enchiridion.Model.Character
 import Enchiridion.Model.WorldNote
 import Enchiridion.Storage.FileIO
+import Enchiridion.Core.Config
 import Enchiridion.AI.OpenRouter
 import Enchiridion.AI.Prompts
 import Enchiridion.AI.Streaming
@@ -119,6 +120,17 @@ def processPendingActions (state : AppState) : IO AppState := do
     state := state.editSelectedWorldNote  -- Enter edit mode for the new note
     state := state.setStatus s!"Created new note"
 
+  -- Handle export request
+  if state.pendingExport then
+    let markdown := state.exportToMarkdown
+    let novelTitle := state.project.novel.title.replace " " "_"
+    let exportPath := s!"{novelTitle}_export.md"
+    try
+      IO.FS.writeFile exportPath markdown
+      state := state.setStatus s!"Exported to {exportPath}"
+    catch _ =>
+      state := state.setError s!"Failed to export to {exportPath}"
+
   -- Note: AI message handling is done in the main loop with streaming support
 
   -- Clear the pending flags (except pendingAIMessage which is handled separately)
@@ -126,6 +138,7 @@ def processPendingActions (state : AppState) : IO AppState := do
     pendingNewChapter := false
     pendingNewScene := false
     pendingSave := false
+    pendingExport := false
     pendingNewCharacter := false
     pendingNewWorldNote := false }
   return state
@@ -340,14 +353,20 @@ def runAppWithIO (initialState : AppState) (drawFn : Frame → AppState → Fram
 def run : IO Unit := do
   IO.println "Starting Enchiridion..."
 
+  -- Load configuration from file or environment
+  let config ← Config.findAndLoad
+
   -- Create initial state
   let mut initialState ← createSampleProject
 
-  -- Load API key from environment
-  let apiKey ← IO.getEnv "OPENROUTER_API_KEY"
-  match apiKey with
-  | some key => initialState := { initialState with openRouterApiKey := key }
-  | none => IO.eprintln "Warning: OPENROUTER_API_KEY not set. AI features will not work."
+  -- Apply configuration
+  if config.openRouterApiKey.isEmpty then
+    IO.eprintln "Warning: No API key configured. AI features will not work."
+    IO.eprintln s!"Set OPENROUTER_API_KEY environment variable or create {Config.configFileName}"
+  else
+    initialState := { initialState with
+      openRouterApiKey := config.openRouterApiKey
+      selectedModel := config.defaultModel }
 
   -- Run the app with our custom IO-aware loop
   runAppWithIO initialState draw

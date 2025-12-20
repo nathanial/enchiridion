@@ -123,6 +123,7 @@ structure AppState where
   pendingNewChapter : Bool := false
   pendingNewScene : Bool := false
   pendingSave : Bool := false
+  pendingExport : Bool := false  -- Export to markdown
   pendingAIMessage : Option String := none  -- User message to send to AI
   pendingNewCharacter : Bool := false
   pendingNewWorldNote : Bool := false
@@ -329,12 +330,17 @@ def requestNewCharacter (state : AppState) : AppState :=
 def requestNewWorldNote (state : AppState) : AppState :=
   { state with pendingNewWorldNote := true }
 
+/-- Request export to markdown -/
+def requestExport (state : AppState) : AppState :=
+  { state with pendingExport := true }
+
 /-- Clear pending actions -/
 def clearPendingActions (state : AppState) : AppState :=
   { state with
       pendingNewChapter := false
       pendingNewScene := false
       pendingSave := false
+      pendingExport := false
       pendingAIMessage := none
       pendingNewCharacter := false
       pendingNewWorldNote := false }
@@ -342,7 +348,8 @@ def clearPendingActions (state : AppState) : AppState :=
 /-- Check if there are any pending actions -/
 def hasPendingActions (state : AppState) : Bool :=
   state.pendingNewChapter || state.pendingNewScene || state.pendingSave ||
-  state.pendingAIMessage.isSome || state.pendingNewCharacter || state.pendingNewWorldNote
+  state.pendingExport || state.pendingAIMessage.isSome ||
+  state.pendingNewCharacter || state.pendingNewWorldNote
 
 /-- Enter edit mode for the selected character -/
 def editSelectedCharacter (state : AppState) : AppState :=
@@ -526,6 +533,72 @@ def handleAIWritingResponse (state : AppState) (response : String) : AppState :=
     | none => state
   else
     state
+
+/-- Toggle help mode -/
+def toggleHelp (state : AppState) : AppState :=
+  if state.mode == .help then
+    { state with mode := .normal }
+  else
+    { state with mode := .help }
+
+/-- Show help mode -/
+def showHelp (state : AppState) : AppState :=
+  { state with mode := .help }
+
+/-- Hide help mode -/
+def hideHelp (state : AppState) : AppState :=
+  { state with mode := .normal }
+
+/-- Get detailed word count statistics -/
+def getWordCountStats (state : AppState) : String :=
+  let novel := state.project.novel
+  let totalWords := state.project.totalWordCount
+  let chapterCount := novel.chapters.size
+  let sceneCount := novel.chapters.foldl (fun acc ch => acc + ch.scenes.size) 0
+  let charCount := state.project.characters.size
+  let noteCount := state.project.worldNotes.size
+  s!"{totalWords} words | {chapterCount} chapters | {sceneCount} scenes | {charCount} characters | {noteCount} notes"
+
+/-- Export novel to markdown format -/
+def exportToMarkdown (state : AppState) : String := Id.run do
+  let novel := state.project.novel
+  let mut md := s!"# {novel.title}\n\n"
+  if !novel.author.isEmpty then
+    md := md ++ s!"**Author:** {novel.author}\n\n"
+  if !novel.genre.isEmpty then
+    md := md ++ s!"**Genre:** {novel.genre}\n\n"
+  if !novel.synopsis.isEmpty then
+    md := md ++ s!"## Synopsis\n\n{novel.synopsis}\n\n"
+
+  md := md ++ "---\n\n"
+
+  for chapter in novel.chapters do
+    md := md ++ s!"## {chapter.title}\n\n"
+    if !chapter.synopsis.isEmpty then
+      md := md ++ s!"*{chapter.synopsis}*\n\n"
+    for scene in chapter.scenes do
+      md := md ++ s!"### {scene.title}\n\n"
+      if !scene.content.isEmpty then
+        md := md ++ s!"{scene.content}\n\n"
+
+  -- Add characters section if any
+  if !state.project.characters.isEmpty then
+    md := md ++ "---\n\n## Characters\n\n"
+    for char in state.project.characters do
+      md := md ++ s!"### {char.name}\n\n"
+      if !char.description.isEmpty then
+        md := md ++ s!"{char.description}\n\n"
+
+  -- Add world notes section if any
+  if !state.project.worldNotes.isEmpty then
+    md := md ++ "---\n\n## World Notes\n\n"
+    for note in state.project.worldNotes do
+      md := md ++ s!"### {note.title}\n\n"
+      md := md ++ s!"*Category: {note.category}*\n\n"
+      if !note.content.isEmpty then
+        md := md ++ s!"{note.content}\n\n"
+
+  return md
 
 end AppState
 
