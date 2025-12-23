@@ -504,7 +504,7 @@ def main : IO Unit := do
   IO.println "╚════════════════════════════════════════╝"
   IO.println ""
 
-  let exitCode ← Crucible.runTests "Enchiridion Tests" Enchiridion.Tests.cases
+  let exitCode ← runAllSuites
 
   IO.println ""
   if exitCode == 0 then
