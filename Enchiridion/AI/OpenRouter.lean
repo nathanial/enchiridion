@@ -1,18 +1,16 @@
 /-
   Enchiridion OpenRouter API Client
-  HTTP client for OpenRouter AI API
+  Uses the Oracle library for OpenRouter API interactions
 -/
 
-import Lean.Data.Json
-import Wisp
+import Oracle
 import Enchiridion.State.AppState
 
 namespace Enchiridion.AI
 
-open Lean Json
-open Wisp
+open Oracle
 
-/-- OpenRouter API configuration -/
+/-- OpenRouter API configuration for Enchiridion -/
 structure OpenRouterConfig where
   apiKey : String
   model : String := "anthropic/claude-3.5-sonnet"
@@ -22,95 +20,13 @@ structure OpenRouterConfig where
   temperature : Float := 0.7
   deriving Repr, Inhabited
 
-/-- Chat message role -/
-inductive MessageRole where
-  | system
-  | user
-  | assistant
-  deriving Repr, BEq, Inhabited
-
-namespace MessageRole
-
-def toString : MessageRole → String
-  | .system => "system"
-  | .user => "user"
-  | .assistant => "assistant"
-
-instance : ToString MessageRole where
-  toString := MessageRole.toString
-
-end MessageRole
-
-/-- API chat message format -/
-structure APIMessage where
-  role : MessageRole
-  content : String
-  deriving Repr, Inhabited
-
-namespace APIMessage
-
-def toJson (msg : APIMessage) : Json :=
-  Json.mkObj [
-    ("role", Json.str msg.role.toString),
-    ("content", Json.str msg.content)
-  ]
-
-end APIMessage
-
-/-- Convert app ChatMessage to API format -/
-def chatMessageToAPI (msg : ChatMessage) : APIMessage :=
+/-- Convert Enchiridion ChatMessage to Oracle Message -/
+def chatMessageToOracleMessage (msg : ChatMessage) : Oracle.Message :=
   let role := match msg.role with
-    | "system" => MessageRole.system
-    | "assistant" => MessageRole.assistant
-    | _ => MessageRole.user
+    | "system" => Oracle.Role.system
+    | "assistant" => Oracle.Role.assistant
+    | _ => Oracle.Role.user
   { role := role, content := msg.content }
-
-/-- Build the request JSON for OpenRouter API -/
-def buildRequestJson (config : OpenRouterConfig) (messages : Array APIMessage) : String :=
-  let msgArray := Json.arr (messages.map APIMessage.toJson)
-  -- Use built-in ToJson Float instance
-  let tempJson := toJson config.temperature
-  let reqObj := Json.mkObj [
-    ("model", Json.str config.model),
-    ("messages", msgArray),
-    ("max_tokens", Json.num config.maxTokens),
-    ("temperature", tempJson),
-    ("stream", Json.bool false)
-  ]
-  reqObj.compress
-
-/-- Create an OpenRouter chat completion request -/
-def createChatRequest (config : OpenRouterConfig) (messages : Array APIMessage) : Request :=
-  Request.post "https://openrouter.ai/api/v1/chat/completions"
-    |>.withBearerToken config.apiKey
-    |>.withJson (buildRequestJson config messages)
-    |>.withHeader "HTTP-Referer" config.siteUrl
-    |>.withHeader "X-Title" config.siteName
-
-/-- Parse the content from an OpenRouter response -/
-def parseResponseContent (body : String) : Option String := do
-  let json ← Json.parse body |>.toOption
-  let choices ← json.getObjVal? "choices" |>.toOption
-  let choicesArr ← choices.getArr?.toOption
-  if h : 0 < choicesArr.size then
-    let firstChoice := choicesArr[0]
-    let message ← firstChoice.getObjVal? "message" |>.toOption
-    let content ← message.getObjValAs? String "content" |>.toOption
-    return content
-  else
-    none
-
-/-- Parse error message from OpenRouter response -/
-def parseErrorMessage (body : String) : String :=
-  match Json.parse body with
-  | .ok json =>
-    match json.getObjVal? "error" with
-    | .ok errObj =>
-      match errObj.getObjValAs? String "message" with
-      | .ok msg => msg
-      | .error _ => "Unknown API error"
-    | .error _ => body
-  | .error _ => body
 
 /-- Result of an API call -/
 inductive APIResult where
@@ -118,24 +34,28 @@ inductive APIResult where
   | error (message : String)
   deriving Repr
 
-/-- Execute a chat completion request (non-streaming) -/
-def sendChatCompletion (config : OpenRouterConfig) (messages : Array APIMessage) : IO APIResult := do
-  let client := HTTP.Client.new
-  let req := createChatRequest config messages
-  let task ← client.execute req
-  let result := task.get
+/-- Create an Oracle client from Enchiridion config -/
+def createClient (config : OpenRouterConfig) : Oracle.Client :=
+  let oracleConfig : Oracle.Config := {
+    apiKey := config.apiKey
+    model := config.model
+    siteUrl := some config.siteUrl
+    siteName := some config.siteName
+  }
+  Oracle.Client.new oracleConfig
 
-  match result with
-  | .ok response =>
-    let bodyStr := String.fromUTF8! response.body
-    if response.status == 200 then
-      match parseResponseContent bodyStr with
-      | some content => return .ok content
-      | none => return .error s!"Failed to parse response: {bodyStr}"
-    else
-      return .error (parseErrorMessage bodyStr)
-  | .error e =>
-    return .error s!"Request failed: {e}"
+/-- Execute a chat completion request (non-streaming) -/
+def sendChatCompletion (config : OpenRouterConfig) (messages : Array ChatMessage) : IO APIResult := do
+  let client := createClient config
+  let oracleMessages := messages.map chatMessageToOracleMessage
+  let opts : Oracle.ChatOptions := {
+    temperature := some config.temperature
+    maxTokens := some config.maxTokens
+  }
+
+  match ← client.complete oracleMessages opts with
+  | .ok content => return .ok content
+  | .error e => return .error (toString e)
 
 /-- Available models on OpenRouter -/
 def availableModels : Array (String × String) := #[

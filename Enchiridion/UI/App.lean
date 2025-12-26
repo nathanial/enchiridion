@@ -154,7 +154,7 @@ def updateWithIO (state : AppState) (keyEvent : Option KeyEvent) : IO (AppState 
   return (state, shouldQuit)
 
 /-- Build API messages for a chat request -/
-def buildAPIMessages (state : AppState) (userMessage : String) : Array AI.APIMessage :=
+def buildAPIMessages (state : AppState) (userMessage : String) : IO (Array ChatMessage) := do
   let sceneContent := state.editorTextArea.text
   let currentChapter := match state.currentChapterId with
     | some cid => state.project.novel.getChapter cid
@@ -163,12 +163,12 @@ def buildAPIMessages (state : AppState) (userMessage : String) : Array AI.APIMes
     | some cid, some sid => state.project.novel.getScene cid sid
     | _, _ => none
   let fullPrompt := AI.buildPrompt .custom state.project sceneContent currentChapter currentScene userMessage
-  let systemMsg : AI.APIMessage := { role := .system, content := AI.systemPrompt }
-  let userApiMsg : AI.APIMessage := { role := .user, content := fullPrompt }
-  #[systemMsg, userApiMsg]
+  let systemMsg ← ChatMessage.create "system" AI.systemPrompt
+  let userApiMsg ← ChatMessage.create "user" fullPrompt
+  return #[systemMsg, userApiMsg]
 
 /-- Build API messages for an AI writing action -/
-def buildWritingActionMessages (state : AppState) (action : AIWritingAction) : Array AI.APIMessage :=
+def buildWritingActionMessages (state : AppState) (action : AIWritingAction) : IO (Array ChatMessage) := do
   let sceneContent := state.editorTextArea.text
   let currentChapter := match state.currentChapterId with
     | some cid => state.project.novel.getChapter cid
@@ -177,9 +177,9 @@ def buildWritingActionMessages (state : AppState) (action : AIWritingAction) : A
     | some cid, some sid => state.project.novel.getScene cid sid
     | _, _ => none
   let fullPrompt := AI.buildWritingActionPrompt action state.project sceneContent currentChapter currentScene
-  let systemMsg : AI.APIMessage := { role := .system, content := AI.systemPrompt }
-  let userApiMsg : AI.APIMessage := { role := .user, content := fullPrompt }
-  #[systemMsg, userApiMsg]
+  let systemMsg ← ChatMessage.create "system" AI.systemPrompt
+  let userApiMsg ← ChatMessage.create "user" fullPrompt
+  return #[systemMsg, userApiMsg]
 
 /-- Custom app loop with IO action support and streaming -/
 partial def runLoop (app : App AppState) (drawFn : Frame → AppState → Frame)
@@ -204,7 +204,7 @@ partial def runLoop (app : App AppState) (drawFn : Frame → AppState → Frame)
         apiKey := state.openRouterApiKey
         model := state.selectedModel
       }
-      let apiMessages := buildAPIMessages state userMessage
+      let apiMessages ← buildAPIMessages state userMessage
 
       state := { state with
         isStreaming := true
@@ -240,7 +240,7 @@ partial def runLoop (app : App AppState) (drawFn : Frame → AppState → Frame)
         apiKey := state.openRouterApiKey
         model := state.selectedModel
       }
-      let apiMessages := buildWritingActionMessages state action
+      let apiMessages ← buildWritingActionMessages state action
 
       state := { state with
         isStreaming := true
