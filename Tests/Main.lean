@@ -4,14 +4,12 @@
 
 import Crucible
 import Enchiridion
+import Staple
 
 namespace Enchiridion.Tests
 
 open Crucible
-
-/-- Helper to check if a substring exists in a string -/
-def containsSubstr (haystack : String) (needle : String) : Bool :=
-  (haystack.splitOn needle).length > 1
+open Staple (String.containsSubstr)
 
 testSuite "Enchiridion Tests"
 
@@ -336,7 +334,7 @@ test "Word count stats contains word count" := do
   }
   let state := Enchiridion.AppState.fromProject testProject
   let stats := state.getWordCountStats
-  ensure (containsSubstr stats "5 words") "Should contain word count"
+  ensure (String.containsSubstr stats "5 words") "Should contain word count"
 
 test "Word count stats contains chapter count" := do
   let mut testNovel ← Enchiridion.Novel.create "Test Novel" "Test Author"
@@ -349,7 +347,7 @@ test "Word count stats contains chapter count" := do
   }
   let state := Enchiridion.AppState.fromProject testProject
   let stats := state.getWordCountStats
-  ensure (containsSubstr stats "1 chapters") "Should contain chapter count"
+  ensure (String.containsSubstr stats "1 chapters") "Should contain chapter count"
 
 test "Word count stats contains scene count" := do
   let mut testNovel ← Enchiridion.Novel.create "Test Novel" "Test Author"
@@ -364,7 +362,7 @@ test "Word count stats contains scene count" := do
   }
   let state := Enchiridion.AppState.fromProject testProject
   let stats := state.getWordCountStats
-  ensure (containsSubstr stats "1 scenes") "Should contain scene count"
+  ensure (String.containsSubstr stats "1 scenes") "Should contain scene count"
 
 /-! ## Export to Markdown -/
 
@@ -377,7 +375,7 @@ test "Markdown export contains title" := do
   }
   let state := Enchiridion.AppState.fromProject testProject
   let markdown := state.exportToMarkdown
-  ensure (containsSubstr markdown "# Test Novel") "Should contain title"
+  ensure (String.containsSubstr markdown "# Test Novel") "Should contain title"
 
 test "Markdown export contains chapter" := do
   let mut testNovel ← Enchiridion.Novel.create "Test Novel" "Test Author"
@@ -390,7 +388,7 @@ test "Markdown export contains chapter" := do
   }
   let state := Enchiridion.AppState.fromProject testProject
   let markdown := state.exportToMarkdown
-  ensure (containsSubstr markdown "## Chapter 1") "Should contain chapter"
+  ensure (String.containsSubstr markdown "## Chapter 1") "Should contain chapter"
 
 test "Markdown export contains scene" := do
   let mut testNovel ← Enchiridion.Novel.create "Test Novel" "Test Author"
@@ -405,7 +403,7 @@ test "Markdown export contains scene" := do
   }
   let state := Enchiridion.AppState.fromProject testProject
   let markdown := state.exportToMarkdown
-  ensure (containsSubstr markdown "### Test Scene") "Should contain scene"
+  ensure (String.containsSubstr markdown "### Test Scene") "Should contain scene"
 
 test "Markdown export contains scene content" := do
   let mut testNovel ← Enchiridion.Novel.create "Test Novel" "Test Author"
@@ -421,7 +419,7 @@ test "Markdown export contains scene content" := do
   }
   let state := Enchiridion.AppState.fromProject testProject
   let markdown := state.exportToMarkdown
-  ensure (containsSubstr markdown "One two three four five.") "Should contain scene content"
+  ensure (String.containsSubstr markdown "One two three four five.") "Should contain scene content"
 
 /-! ## Export Request -/
 

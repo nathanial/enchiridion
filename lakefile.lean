@@ -8,6 +8,7 @@ package enchiridion where
 require terminus from ".." / "terminus"
 require oracle from ".." / "oracle"
 require crucible from ".." / "crucible"
+require staple from ".." / "staple"
 
 -- Curl link args (inherited from wisp, but needed for our executables)
 def curlLinkArgs : Array String :=
