@@ -26,7 +26,7 @@ def chatMessageToOracleMessage (msg : ChatMessage) : Oracle.Message :=
     | "system" => Oracle.Role.system
     | "assistant" => Oracle.Role.assistant
     | _ => Oracle.Role.user
-  { role := role, content := msg.content }
+  { role := role, content := .string msg.content }
 
 /-- Result of an API call -/
 inductive APIResult where
