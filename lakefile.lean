@@ -4,11 +4,10 @@ open Lake DSL System
 package enchiridion where
   precompileModules := true
 
--- Local workspace dependencies
-require terminus from ".." / "terminus"
-require oracle from ".." / "oracle"
-require crucible from ".." / "crucible"
-require staple from ".." / "staple"
+require terminus from git "https://github.com/nathanial/terminus" @ "v0.0.1"
+require oracle from git "https://github.com/nathanial/oracle" @ "v0.0.1"
+require crucible from git "https://github.com/nathanial/crucible" @ "v0.0.1"
+require staple from git "https://github.com/nathanial/staple" @ "v0.0.1"
 
 -- Curl link args (inherited from wisp, but needed for our executables)
 def curlLinkArgs : Array String :=
