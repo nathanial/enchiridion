@@ -6,7 +6,7 @@ package enchiridion where
 
 require terminus from git "https://github.com/nathanial/terminus" @ "v0.0.2"
 require oracle from git "https://github.com/nathanial/oracle" @ "v0.0.1"
-require crucible from git "https://github.com/nathanial/crucible" @ "v0.0.7"
+require crucible from git "https://github.com/nathanial/crucible" @ "v0.0.8"
 require staple from git "https://github.com/nathanial/staple" @ "v0.0.2"
 
 -- Curl link args (inherited from wisp, but needed for our executables)
