@@ -492,8 +492,6 @@ test "clearStatus works" := do
   state := state.clearStatus
   ensure state.statusMessage.isNone "Status should be cleared"
 
-#generate_tests
-
 end Enchiridion.Tests
 
 def main : IO Unit := do
